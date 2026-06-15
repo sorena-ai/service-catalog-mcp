@@ -272,7 +272,7 @@ def main():
     )
 
     port = int(os.getenv("MCP_PORT", "8200"))
-    app.run(transport="http", host="0.0.0.0", port=port)
+    app.run(transport="http", host="0.0.0.0", port=port, path="/")
 
 
 if __name__ == "__main__":
