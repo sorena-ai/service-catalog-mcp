@@ -80,7 +80,8 @@ async def get_ci_status(
             fetch_branch = branch
 
         try:
-            ci = await fetch_workflow_runs(repo, token, head_sha=head_sha, branch=fetch_branch, limit=limit)
+            raw_ci = await fetch_workflow_runs(repo, token, head_sha=head_sha, branch=fetch_branch, limit=limit)
+            ci = CIState.model_validate(raw_ci.model_dump())
         except Exception as exc:
             logger.exception("ci: failed to fetch for %s", repo)
             return repo, RepoCIResult(error=_err_msg(exc))
