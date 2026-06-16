@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Awaitable, Callable, List, Optional
 from pydantic import BaseModel
 
 from sdk.errors import ConflictError, NotFoundError
-from sdk.batch.models import PRPrep, SubTask
+from sdk.batch.models import PR, PRPrep, SubTask
 
 if TYPE_CHECKING:
     from sdk.storage.cache.base import Cache
@@ -148,7 +148,7 @@ async def create_pr(req: CreatePRRequest, *, cache: "Cache", get_token: Callable
             logger.warning("create_pr: push failed for %s, skipping PR", repo)
             return
         try:
-            pr = await create_pull_request(
+            pr = PR.model_validate((await create_pull_request(
                 repo=repo,
                 head_branch=sub.pr_prep.head_branch,
                 base_branch=sub.pr_prep.base_branch,
@@ -156,7 +156,7 @@ async def create_pr(req: CreatePRRequest, *, cache: "Cache", get_token: Callable
                 body=sub.pr_prep.body,
                 draft=req.draft,
                 token=token,
-            )
+            )).model_dump())
             updated = SubTask(
                 repo=repo, branch=sub.branch, description=sub.description,
                 diff=sub.diff, push=sub.push, pr_prep=sub.pr_prep, pr=pr,
@@ -182,10 +182,10 @@ async def update_pr(repo: str, req: UpdatePRRequest, *, cache: "Cache", get_toke
         raise ConflictError("No PR for this repo; call create_pr first")
 
     token = await get_token()
-    pr = await update_pull_request(
+    pr = PR.model_validate((await update_pull_request(
         repo=repo, pr_number=sub.pr.number, token=token,
         title=req.title, body=req.body,
-    )
+    )).model_dump())
 
     updated_prep = sub.pr_prep
     if sub.pr_prep is not None:
@@ -218,7 +218,7 @@ async def close_pr(req: BulkReposRequest, *, cache: "Cache", get_token: Callable
             logger.warning("close_pr: repo %s has no PR", repo)
             return
         try:
-            pr = await close_pull_request(repo=repo, pr_number=sub.pr.number, token=token)
+            pr = PR.model_validate((await close_pull_request(repo=repo, pr_number=sub.pr.number, token=token)).model_dump())
             updated = SubTask(
                 repo=repo, branch=sub.branch, description=sub.description,
                 diff=sub.diff, push=sub.push, pr_prep=sub.pr_prep, pr=pr,
