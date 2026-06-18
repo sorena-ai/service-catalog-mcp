@@ -19,31 +19,137 @@ GITHUB_APP_NAME = os.getenv("GITHUB_APP_NAME", "service-catalog")
 
 
 def _render_install_status_page(user_id: str, state: str) -> str:
-    page = """<!doctype html>
+    return f"""<!doctype html>
 <html>
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Service Catalog — Indexing repositories</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 640px; margin: 72px auto; padding: 0 24px; color: #111; }
-    h1 { font-size: 28px; margin: 0 0 12px; }
-    p { color: #444; line-height: 1.5; }
-    .card { border: 1px solid #e5e5e5; border-radius: 14px; padding: 18px; margin-top: 22px; }
-    .phase { font-weight: 650; margin-bottom: 14px; }
-    .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #111; border-radius: 50%; animation: spin 0.9s linear infinite; vertical-align: -2px; }
-    @keyframes spin { to { transform: rotate(360deg); } }
+    body {{ font-family: system-ui, sans-serif; max-width: 640px; margin: 72px auto; padding: 0 24px; color: #111; }}
+    h1 {{ font-size: 28px; margin: 0 0 12px; }}
+    p {{ color: #555; line-height: 1.5; margin: 0 0 24px; }}
+    .phases {{ list-style: none; padding: 0; margin: 0 0 28px; }}
+    .phases li {{ display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 15px; color: #999; }}
+    .phases li.active {{ color: #111; font-weight: 600; }}
+    .phases li.done {{ color: #555; }}
+    .phases li.failed {{ color: #c0392b; }}
+    .check {{ width: 18px; text-align: center; flex-shrink: 0; }}
+    .repos {{ border: 1px solid #e5e5e5; border-radius: 12px; overflow: hidden; }}
+    .repo {{ display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }}
+    .repo:last-child {{ border-bottom: none; }}
+    .repo-name {{ flex: 1; font-weight: 500; }}
+    .repo-step {{ color: #888; font-size: 13px; }}
+    .repo-error {{ color: #c0392b; font-size: 13px; }}
+    .dot {{ width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }}
+    .dot-pending {{ background: #ddd; }}
+    .dot-in_progress {{ background: #3b82f6; animation: pulse 1.2s ease-in-out infinite; }}
+    .dot-done {{ background: #22c55e; }}
+    .dot-failed {{ background: #ef4444; }}
+    .spinner {{ display: inline-block; width: 14px; height: 14px; border: 2px solid #ddd; border-top-color: #3b82f6; border-radius: 50%; animation: spin 0.9s linear infinite; flex-shrink: 0; }}
+    .done-banner {{ background: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 12px; padding: 16px 20px; color: #166534; font-weight: 500; margin-bottom: 24px; }}
+    .fail-banner {{ background: #fef2f2; border: 1px solid #fecaca; border-radius: 12px; padding: 16px 20px; color: #991b1b; font-weight: 500; margin-bottom: 24px; }}
+    @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+    @keyframes pulse {{ 0%, 100% {{ opacity: 1; }} 50% {{ opacity: 0.4; }} }}
   </style>
 </head>
 <body>
   <h1>Connected to GitHub ✓</h1>
-  <p>Your repositories are being indexed. You can start using Service Catalog in Claude Desktop shortly.</p>
-  <div class="card">
-    <div class="phase"><span class="spinner"></span>&nbsp; Indexing repositories…</div>
-  </div>
+  <p>Your repositories are being indexed. This takes a few minutes — you can start using Service Catalog in Claude Desktop once it's done.</p>
+  <div id="banner"></div>
+  <ul class="phases" id="phases"></ul>
+  <div class="repos" id="repos" style="display:none"></div>
+  <script>
+    const STATE = {state!r};
+    const PHASES = [
+      {{ id: "starting",              label: "Queued" }},
+      {{ id: "waiting_for_repos",     label: "Queued" }},
+      {{ id: "cloning",               label: "Cloning repositories" }},
+      {{ id: "analyzing_codebase",    label: "Analyzing codebase" }},
+      {{ id: "scanning",              label: "Scanning repositories" }},
+      {{ id: "generating_repo_context", label: "Generating context" }},
+      {{ id: "building_edges",        label: "Building relationships" }},
+      {{ id: "done",                  label: "Done" }},
+      {{ id: "failed",                label: "Failed" }},
+    ];
+    const PHASE_ORDER = ["starting","waiting_for_repos","cloning","analyzing_codebase","scanning","generating_repo_context","building_edges","done","failed"];
+
+    function phaseIndex(id) {{ return PHASE_ORDER.indexOf(id); }}
+
+    function renderPhases(currentPhase) {{
+      const el = document.getElementById("phases");
+      const cur = phaseIndex(currentPhase);
+      const isFailed = currentPhase === "failed";
+      const isDone = currentPhase === "done";
+      const visible = PHASES.filter(p => !["starting","waiting_for_repos","failed"].includes(p.id));
+      el.innerHTML = visible.map(p => {{
+        const idx = phaseIndex(p.id);
+        const isDonePhase = p.id === "done";
+        let cls = "", icon = "";
+        if (isFailed) {{
+          cls = idx < cur ? "done" : "";
+          icon = idx < cur ? "✓" : "·";
+        }} else if (isDonePhase && isDone) {{
+          cls = "done"; icon = "✓";
+        }} else if (idx < cur && !isDonePhase) {{
+          cls = "done"; icon = "✓";
+        }} else if (idx === cur) {{
+          cls = "active"; icon = '<span class="spinner"></span>';
+        }} else {{
+          icon = "·";
+        }}
+        return `<li class="${{cls}}"><span class="check">${{icon}}</span>${{p.label}}</li>`;
+      }}).join("");
+    }}
+
+    function renderRepos(repos) {{
+      if (!repos || repos.length === 0) return;
+      const el = document.getElementById("repos");
+      el.style.display = "";
+      el.innerHTML = repos.map(r => {{
+        const detail = r.status === "failed"
+          ? `<span class="repo-error">${{r.error_message || "failed"}}</span>`
+          : r.step ? `<span class="repo-step">${{r.step}}</span>` : "";
+        return `<div class="repo">
+          <div class="dot dot-${{r.status}}"></div>
+          <div class="repo-name">${{r.name}}</div>
+          ${{detail}}
+        </div>`;
+      }}).join("");
+    }}
+
+    function renderBanner(phase) {{
+      const el = document.getElementById("banner");
+      if (phase === "done") {{
+        el.innerHTML = '<div class="done-banner">All repositories indexed — you can now use Service Catalog in Claude Desktop.</div>';
+      }} else if (phase === "failed") {{
+        el.innerHTML = '<div class="fail-banner">Indexing encountered errors. Some repositories may be unavailable.</div>';
+      }} else {{
+        el.innerHTML = "";
+      }}
+    }}
+
+    async function poll() {{
+      try {{
+        const res = await fetch("/indexing/status?state=" + encodeURIComponent(STATE));
+        if (!res.ok) return;
+        const data = await res.json();
+        renderPhases(data.phase);
+        renderRepos(data.repos);
+        renderBanner(data.phase);
+        if (data.phase !== "done" && data.phase !== "failed") {{
+          setTimeout(poll, 1500);
+        }}
+      }} catch (e) {{
+        setTimeout(poll, 3000);
+      }}
+    }}
+
+    renderPhases("starting");
+    poll();
+  </script>
 </body>
 </html>"""
-    return page
 
 
 @router.get("/callback")

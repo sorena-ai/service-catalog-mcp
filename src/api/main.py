@@ -22,8 +22,9 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Service Catalog API", lifespan=lifespan)
 
-from api.routes import github, health, stripe  # noqa: E402
+from api.routes import github, health, indexing, stripe  # noqa: E402
 
 app.include_router(health.router)
 app.include_router(github.router)
+app.include_router(indexing.router)
 app.include_router(stripe.router)
