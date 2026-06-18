@@ -1,22 +1,21 @@
-"""Per-user indexing event scheduler.
+"""Per-user indexing basket.
 
-Coalesces bursts of triggers into a single event per user, enforces the
-single-in-flight rule, and applies the auto-index bulk limit. The
-orchestrator's ``run_indexing_event`` is a long, awaitable coroutine; the
-scheduler is the only place that decides when (and whether) to invoke it.
+Each user has one *basket* of repositories awaiting indexing. Repos added to a
+user's basket are picked up immediately — there is no debounce timer and no
+polling delay. A single worker runs per user, so one indexing event is in
+flight at a time for a given user; different users index concurrently.
 
-Behavior:
+While a worker is running, repos added to that user's basket are drained by the
+same worker in a back-to-back run the instant the current event finishes, so
+the worker keeps going until the basket is empty.
 
-  - Triggers add their repos to a per-user pending set.
-  - If no event is in flight for the user, a debounce timer starts (default
-    60s). New triggers within the window cancel + restart the timer so a
-    burst converges into one event.
-  - When the timer fires, the scheduler acquires the per-user lock, drains
-    pending repos, and runs the orchestrator.
-  - Triggers arriving while a run is in flight just append to pending; the
-    scheduler loops after the current run completes.
-  - The bulk auto-index limit (5 repos) only applies when ``bulk_limit`` is
-    True. Manual single-repo triggers pass it through unconditionally.
+Note: because an indexing event is internally phased (clone → codebase pass →
+scan → repo pass), a repo added mid-event is not folded into the *running*
+event's passes — it is processed by the immediately-following run instead.
+
+Caveat: the basket is in-memory. If the process restarts, pending repos are
+lost (they remain ``indexing_status="pending"`` in Mongo and must be
+re-triggered). Persisting the basket (e.g. in Redis) is a possible follow-up.
 """
 
 from __future__ import annotations
@@ -34,21 +33,12 @@ TokenProvider = Callable[[str], Awaitable[str]]
 
 class IndexingScheduler:
     AUTO_INDEX_BULK_LIMIT = 5
-    DEFAULT_DEBOUNCE_SECONDS = 60.0
 
-    def __init__(self, debounce_seconds: float = DEFAULT_DEBOUNCE_SECONDS) -> None:
-        self.debounce_seconds = debounce_seconds
-        self._pending_repos: Dict[str, Set[str]] = {}
-        self._pending_token: Dict[str, TokenProvider] = {}
-        self._pending_trigger: Dict[str, str] = {}
-        self._timers: Dict[str, asyncio.Task] = {}
-        self._locks: Dict[str, asyncio.Lock] = {}
-        self._tasks: Set[asyncio.Task] = set()
-
-    def _lock(self, user_id: str) -> asyncio.Lock:
-        if user_id not in self._locks:
-            self._locks[user_id] = asyncio.Lock()
-        return self._locks[user_id]
+    def __init__(self) -> None:
+        self._baskets: Dict[str, Set[str]] = {}
+        self._token: Dict[str, TokenProvider] = {}
+        self._trigger: Dict[str, str] = {}
+        self._workers: Dict[str, asyncio.Task] = {}
 
     async def trigger(
         self,
@@ -58,17 +48,19 @@ class IndexingScheduler:
         trigger: str = "auto",
         bulk_limit: bool = True,
     ) -> dict:
-        """Schedule (or coalesce) an indexing event for ``user_id``.
+        """Add ``repository_names`` to ``user_id``'s basket and ensure a worker
+        is running. Starts indexing immediately if the user has no worker yet;
+        otherwise the running worker picks the repos up when it drains next.
 
-        Returns a status dict describing what happened. ``token_provider``
-        is invoked at run time so installation tokens are always fresh.
+        ``token_provider`` is invoked at run time so installation tokens are
+        always fresh.
         """
         if not repository_names:
             return {"status": "no_repos"}
 
         if bulk_limit and len(repository_names) > self.AUTO_INDEX_BULK_LIMIT:
             logger.info(
-                "Bulk auto-index limit hit for user=%s (%d repos > %d); skipping",
+                "Bulk auto-index limit hit for user=%s (%d > %d); skipping",
                 user_id, len(repository_names), self.AUTO_INDEX_BULK_LIMIT,
             )
             return {
@@ -77,61 +69,51 @@ class IndexingScheduler:
                 "repo_count": len(repository_names),
             }
 
-        self._pending_repos.setdefault(user_id, set()).update(repository_names)
-        self._pending_token[user_id] = token_provider
-        self._pending_trigger[user_id] = trigger
+        self._baskets.setdefault(user_id, set()).update(repository_names)
+        self._token[user_id] = token_provider
+        self._trigger[user_id] = trigger
 
-        if self._lock(user_id).locked():
-            return {
-                "status": "queued_dirty",
-                "pending_count": len(self._pending_repos[user_id]),
-            }
+        worker = self._workers.get(user_id)
+        if worker and not worker.done():
+            return {"status": "added", "basket_size": len(self._baskets[user_id])}
 
-        existing = self._timers.get(user_id)
-        if existing and not existing.done():
-            existing.cancel()
+        worker = asyncio.create_task(self._drain(user_id))
+        self._workers[user_id] = worker
+        return {"status": "started", "basket_size": len(self._baskets[user_id])}
 
-        timer = asyncio.create_task(self._debounced_run(user_id))
-        self._timers[user_id] = timer
-        self._tasks.add(timer)
-        timer.add_done_callback(self._tasks.discard)
-        return {
-            "status": "scheduled",
-            "pending_count": len(self._pending_repos[user_id]),
-        }
+    async def _drain(self, user_id: str) -> None:
+        """Run indexing events back-to-back until the user's basket is empty.
 
-    async def _debounced_run(self, user_id: str) -> None:
-        try:
-            await asyncio.sleep(self.debounce_seconds)
-        except asyncio.CancelledError:
-            return
+        The basket-empty check and the worker removal below run without an
+        intervening ``await``, so a concurrent ``trigger()`` (single-threaded
+        asyncio) cannot leave repos stranded with no worker.
+        """
+        while True:
+            repos = self._baskets.pop(user_id, None)
+            token = self._token.pop(user_id, None)
+            trigger = self._trigger.pop(user_id, "auto")
 
-        async with self._lock(user_id):
-            while True:
-                repos = self._pending_repos.pop(user_id, None)
-                token = self._pending_token.pop(user_id, None)
-                trigger = self._pending_trigger.pop(user_id, "auto")
+            if not repos or token is None:
+                self._workers.pop(user_id, None)
+                return
 
-                if not repos or token is None:
-                    return
-
-                try:
-                    await run_indexing_event(
-                        user_id=user_id,
-                        repository_names=sorted(repos),
-                        token_provider=token,
-                        trigger=trigger,
-                    )
-                except Exception:
-                    logger.exception(
-                        "Indexing event raised; user=%s repos=%d", user_id, len(repos)
-                    )
-                # Loop iff trigger() added more pending while we were running.
+            try:
+                await run_indexing_event(
+                    user_id=user_id,
+                    repository_names=sorted(repos),
+                    token_provider=token,
+                    trigger=trigger,
+                )
+            except Exception:
+                logger.exception(
+                    "Indexing event raised; user=%s repos=%d", user_id, len(repos)
+                )
 
     async def shutdown(self) -> None:
-        for timer in list(self._timers.values()):
-            timer.cancel()
-        await asyncio.gather(*self._tasks, return_exceptions=True)
+        workers = list(self._workers.values())
+        for worker in workers:
+            worker.cancel()
+        await asyncio.gather(*workers, return_exceptions=True)
 
 
 # Module-level singleton used by the FastAPI app.
