@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Iterable, List, Tuple
 
-from ...db.dependencies import RepositoryDependency
-from ...db.extractions import RepositoryExtraction
+from sdk.indexer.db.dependencies import RepositoryDependency
+from sdk.indexer.db.extractions import RepositoryExtraction
 
 # (matcher_function, framework, language)
 DepName = str

@@ -14,44 +14,44 @@ import logging
 from pathlib import Path
 from typing import List
 
-from ...db.codebase_contexts import CodebaseContext
+from sdk.indexer.db.codebase_contexts import CodebaseContext
 from sdk import vocabulary as vocab_mod
 
 logger = logging.getLogger(__name__)
 
 
-class Tier1ParseError(RuntimeError):
+class WorkspaceParseError(RuntimeError):
     pass
 
 
 def parse_output(output_path: Path, user_id: str) -> List[CodebaseContext]:
     if not output_path.exists():
-        raise Tier1ParseError(f"Codebase pass output missing: {output_path}")
+        raise WorkspaceParseError(f"Codebase pass output missing: {output_path}")
 
     try:
         raw = output_path.read_text(encoding="utf-8")
         data = json.loads(raw)
     except json.JSONDecodeError as exc:
-        raise Tier1ParseError(f"Invalid JSON in {output_path}: {exc}") from exc
+        raise WorkspaceParseError(f"Invalid JSON in {output_path}: {exc}") from exc
 
     if not isinstance(data, dict):
-        raise Tier1ParseError(f"Codebase pass output must be a JSON object, got {type(data).__name__}")
+        raise WorkspaceParseError(f"Codebase pass output must be a JSON object, got {type(data).__name__}")
 
     required = set(vocab_mod.CODEBASE_CONTEXT_TYPES)
     missing = required - set(data.keys())
     if missing:
-        raise Tier1ParseError(f"Codebase pass output missing keys: {sorted(missing)}")
+        raise WorkspaceParseError(f"Codebase pass output missing keys: {sorted(missing)}")
 
     rows: List[CodebaseContext] = []
     for ctype in vocab_mod.CODEBASE_CONTEXT_TYPES:
         section = data[ctype]
         if not isinstance(section, dict):
-            raise Tier1ParseError(
+            raise WorkspaceParseError(
                 f"Codebase pass key {ctype} must be an object, got {type(section).__name__}"
             )
         content = section.get("content")
         if not isinstance(content, str) or not content.strip():
-            raise Tier1ParseError(f"Codebase pass key {ctype}.content must be a non-empty string")
+            raise WorkspaceParseError(f"Codebase pass key {ctype}.content must be a non-empty string")
         rows.append(
             CodebaseContext(
                 user_id=user_id,

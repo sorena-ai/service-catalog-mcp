@@ -19,8 +19,8 @@ import re
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from ..db.dependencies import RepositoryDependency
-from ..db.workspaces import RepositoryWorkspace
+from sdk.indexer.db.dependencies import RepositoryDependency
+from sdk.indexer.db.workspaces import RepositoryWorkspace
 
 logger = logging.getLogger(__name__)
 

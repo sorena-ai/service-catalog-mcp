@@ -10,7 +10,7 @@ Claude does not need them re-cloned.
 INPUT_FILENAME = "__codebase_input.json"
 OUTPUT_FILENAME = "__codebase_output.json"
 
-TIER1_PROMPT = f"""You are indexing a multi-repository codebase belonging to a single user.
+WORKSPACE_PROMPT = f"""You are indexing a multi-repository codebase belonging to a single user.
 
 Read the file ``{INPUT_FILENAME}`` in the current directory. It contains:
 

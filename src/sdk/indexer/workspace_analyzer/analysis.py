@@ -1,7 +1,7 @@
 """Codebase-pass orchestrator.
 
 Glues input assembly, Claude CLI invocation, output parsing, and
-persistence into a single ``run_tier1`` entry point. The caller (the
+persistence into a single ``run_workspace_analysis`` entry point. The caller (the
 event-level orchestrator) is responsible for cloning repos and
 preparing the workspace before calling here.
 """
@@ -13,8 +13,8 @@ import os
 from datetime import datetime
 from typing import Iterable, List
 
-from lib.claude_cli.client import ClaudeCLIClient
-from lib.claude_cli.models import ClaudeRunConfig
+from lib.cli import get_cli
+from lib.cli.base import CliRunConfig
 
 try:
     from langsmith import traceable as _traceable
@@ -27,12 +27,12 @@ except Exception:  # pragma: no cover
             return args[0]
         return _decorator
 
-from ...clone_workspace import IndexCloneWorkspace
-from ...db.codebase_contexts import CodebaseContextDB
-from ...db.codebase_runs import CodebaseRun, CodebaseRunDB
-from ...prompts.tier1_codebase import (
+from sdk.indexer.clone_workspace import IndexCloneWorkspace
+from sdk.indexer.db.codebase_contexts import CodebaseContextDB
+from sdk.indexer.db.codebase_runs import CodebaseRun, CodebaseRunDB
+from sdk.indexer.prompts.workspace_analyzer import (
     OUTPUT_FILENAME,
-    TIER1_PROMPT,
+    WORKSPACE_PROMPT,
 )
 from .assembler import (
     ExistingRepoCard,
@@ -40,7 +40,7 @@ from .assembler import (
     assemble_input,
     load_existing_repo_cards,
 )
-from .parser import Tier1ParseError, parse_output
+from .parser import WorkspaceParseError, parse_output
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +48,8 @@ DEFAULT_MODEL = "claude-sonnet-4-6"
 DEFAULT_TIMEOUT = 1800
 
 
-@_traceable(run_type="chain", name="indexer.tier1")
-def run_tier1(
+@_traceable(run_type="chain", name="indexer.workspace_analysis")
+def run_workspace_analysis(
     workspace: IndexCloneWorkspace,
     event_id: str,
     new_repos: Iterable[NewRepoEntry],
@@ -79,15 +79,15 @@ def run_tier1(
     try:
         assemble_input(event_dir, user_id, existing_list, new_list)
 
-        client = ClaudeCLIClient()
-        config = ClaudeRunConfig(
-            cwd=str(event_dir),
-            prompt=TIER1_PROMPT,
+        cli = get_cli()
+        config = CliRunConfig(
+            cwd=event_dir,
+            prompt=WORKSPACE_PROMPT,
             model=model or os.getenv("CLAUDE_CLI_DEFAULT_MODEL") or DEFAULT_MODEL,
             max_turns=100,
             timeout=timeout_seconds,
         )
-        result = client.run(config)
+        result = cli.run(config)
 
         rows = parse_output(event_dir / OUTPUT_FILENAME, user_id)
 
@@ -112,7 +112,7 @@ def run_tier1(
         )
         return run
 
-    except Tier1ParseError as exc:
+    except WorkspaceParseError as exc:
         runs_db.update(
             run_id,
             {
@@ -137,7 +137,7 @@ def run_tier1(
 
 
 __all__ = [
-    "run_tier1",
+    "run_workspace_analysis",
     "ExistingRepoCard",
     "NewRepoEntry",
     "load_existing_repo_cards",

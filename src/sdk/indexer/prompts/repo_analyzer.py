@@ -10,7 +10,7 @@ view written moments earlier.
 INPUT_FILENAME = "__repo_contexts_input.json"
 OUTPUT_FILENAME = "__repo_contexts_output.json"
 
-TIER2_PROMPT = f"""You are generating per-repository context documents for a multi-repo
+REPO_PROMPT = f"""You are generating per-repository context documents for a multi-repo
 codebase. The deterministic scanners already produced exact-fact rows;
 your job is to produce concise, grounded prose that explains each repo
 to a downstream agent.

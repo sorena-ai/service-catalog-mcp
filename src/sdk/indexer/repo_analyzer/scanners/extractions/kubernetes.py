@@ -13,8 +13,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import List
 
-from ...db.extractions import RepositoryExtraction
-from ._yaml import iter_yaml_files, safe_load_all
+from sdk.indexer.db.extractions import RepositoryExtraction
+from ._yaml import safe_load_all
 
 SKIP_BASENAMES = {
     "docker-compose.yml",
@@ -28,14 +28,18 @@ SKIP_BASENAMES = {
 
 
 def scan_kubernetes(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], repo_dir: Path | str, user_id: str, repository_name: str
 ) -> List[RepositoryExtraction]:
     base = Path(repo_dir)
     rows: List[RepositoryExtraction] = []
-    for path in iter_yaml_files(base):
-        if path.name in SKIP_BASENAMES:
+    for rel, _ in files:
+        name = rel.rsplit("/", 1)[-1]
+        if name in SKIP_BASENAMES:
             continue
-        rel = str(path.relative_to(base)).replace("\\", "/")
+        if not (name.endswith(".yaml") or name.endswith(".yml")):
+            continue
+        
+        path = base / rel
         for doc in safe_load_all(path):
             if not isinstance(doc, dict):
                 continue

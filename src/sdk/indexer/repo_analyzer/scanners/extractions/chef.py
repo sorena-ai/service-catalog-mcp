@@ -17,8 +17,7 @@ import re
 from pathlib import Path
 from typing import List
 
-from ...db.extractions import RepositoryExtraction
-from .._walker import IGNORE_DIRS
+from sdk.indexer.db.extractions import RepositoryExtraction
 
 logger = logging.getLogger(__name__)
 
@@ -31,29 +30,27 @@ SUPPORTS_LINE = re.compile(
 
 
 def scan_chef(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], repo_dir: Path | str, user_id: str, repository_name: str
 ) -> List[RepositoryExtraction]:
     base = Path(repo_dir)
     rows: List[RepositoryExtraction] = []
-    for path in base.rglob("metadata.rb"):
-        rel = path.relative_to(base)
-        if any(part in IGNORE_DIRS for part in rel.parts):
-            continue
-        rel_str = str(rel).replace("\\", "/")
-        parsed = _parse_metadata(path)
-        if not parsed.get("name"):
-            continue
-        parsed["metadata_file"] = rel_str
-        rows.append(
-            RepositoryExtraction(
-                user_id=user_id,
-                repository_name=repository_name,
-                extraction_type="chef_cookbook",
-                data=parsed,
-                workspace_path=str(rel.parent).replace("\\", "/") if rel.parent != Path() else ".",
-                evidence=[{"kind": "manifest", "path": rel_str}],
+    for rel, _ in files:
+        if rel.rsplit("/", 1)[-1] == "metadata.rb":
+            path = base / rel
+            parsed = _parse_metadata(path)
+            if not parsed.get("name"):
+                continue
+            parsed["metadata_file"] = rel
+            rows.append(
+                RepositoryExtraction(
+                    user_id=user_id,
+                    repository_name=repository_name,
+                    extraction_type="chef_cookbook",
+                    data=parsed,
+                    workspace_path=rel.rsplit("/", 1)[0] if "/" in rel else ".",
+                    evidence=[{"kind": "manifest", "path": rel}],
+                )
             )
-        )
     return rows
 
 

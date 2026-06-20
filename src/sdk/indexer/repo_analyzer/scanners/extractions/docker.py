@@ -16,8 +16,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from ...db.extractions import RepositoryExtraction
-from .._walker import walk_repo
+from sdk.indexer.db.extractions import RepositoryExtraction
 from ._yaml import safe_load_one
 
 logger = logging.getLogger(__name__)
@@ -37,11 +36,11 @@ FROM_LINE = re.compile(
 
 
 def scan_docker(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], repo_dir: Path | str, user_id: str, repository_name: str
 ) -> List[RepositoryExtraction]:
     rows: List[RepositoryExtraction] = []
 
-    for rel, _ in walk_repo(repo_dir):
+    for rel, _ in files:
         name = rel.rsplit("/", 1)[-1]
         full = Path(repo_dir) / rel
 

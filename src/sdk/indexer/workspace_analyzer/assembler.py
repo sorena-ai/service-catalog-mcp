@@ -14,12 +14,12 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from ...db.contexts import RepositoryContextDB
-from ...db.dependencies import RepositoryDependencyDB
-from ...db.extractions import RepositoryExtractionDB
-from ...db.languages import RepositoryLanguageDB
+from sdk.indexer.db.contexts import RepositoryContextDB
+from sdk.indexer.db.dependencies import RepositoryDependencyDB
+from sdk.indexer.db.extractions import RepositoryExtractionDB
+from sdk.indexer.db.languages import RepositoryLanguageDB
 from sdk import vocabulary as vocab_mod
-from ...prompts.tier1_codebase import INPUT_FILENAME
+from sdk.indexer.prompts.workspace_analyzer import INPUT_FILENAME
 
 logger = logging.getLogger(__name__)
 

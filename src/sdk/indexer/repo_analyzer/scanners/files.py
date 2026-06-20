@@ -6,9 +6,8 @@ import re
 from pathlib import Path
 from typing import List, Optional
 
-from ..db.files import RepositoryFile
-from ._walker import walk_repo
-from .languages import EXT_LANGUAGE
+from sdk.indexer.db.files import RepositoryFile
+from sdk.indexer.lang_extensions import EXT_LANGUAGE
 
 # Filenames that are themselves manifests, regardless of directory.
 MANIFEST_FILENAMES = frozenset({
@@ -112,10 +111,10 @@ README_REGEX = re.compile(r"^README(\..*)?$", re.IGNORECASE)
 
 
 def scan_files(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], user_id: str, repository_name: str
 ) -> List[RepositoryFile]:
     rows: List[RepositoryFile] = []
-    for rel, size in walk_repo(repo_dir):
+    for rel, size in files:
         role = _classify(rel)
         if role is None:
             continue

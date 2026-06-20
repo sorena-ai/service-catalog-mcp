@@ -46,20 +46,3 @@ def safe_load_all(path: Path) -> List[Any]:
     return docs
 
 
-def iter_yaml_files(
-    repo_dir: Path | str,
-) -> Iterator[Path]:
-    """Yield ``*.yaml`` / ``*.yml`` files under ``repo_dir`` honoring the
-    same ignore list as the deterministic walker."""
-    from .._walker import IGNORE_DIRS
-
-    base = Path(repo_dir)
-    for p in base.rglob("*"):
-        if not p.is_file():
-            continue
-        if p.suffix.lower() not in {".yaml", ".yml"}:
-            continue
-        rel = p.relative_to(base)
-        if any(part in IGNORE_DIRS for part in rel.parts):
-            continue
-        yield p

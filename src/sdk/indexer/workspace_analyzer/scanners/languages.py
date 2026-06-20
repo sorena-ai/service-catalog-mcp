@@ -6,40 +6,18 @@ from collections import Counter
 from pathlib import Path
 from typing import List
 
-from ..db.languages import RepositoryLanguage
-from ._walker import walk_repo
-
-EXT_LANGUAGE = {
-    ".py": "python",
-    ".pyi": "python",
-    ".go": "go",
-    ".ts": "typescript",
-    ".tsx": "typescript",
-    ".js": "javascript",
-    ".jsx": "javascript",
-    ".mjs": "javascript",
-    ".cjs": "javascript",
-    ".rs": "rust",
-    ".java": "java",
-    ".kt": "kotlin",
-    ".kts": "kotlin",
-    ".rb": "ruby",
-    ".cs": "csharp",
-    ".php": "php",
-    ".sh": "shell",
-    ".bash": "shell",
-    ".zsh": "shell",
-}
+from sdk.indexer.db.languages import RepositoryLanguage
+from sdk.indexer.lang_extensions import EXT_LANGUAGE
 
 MIN_FILES = 1
 TOP_N = 10
 
 
 def scan_languages(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], user_id: str, repository_name: str
 ) -> List[RepositoryLanguage]:
     counts: Counter = Counter()
-    for rel, _ in walk_repo(repo_dir):
+    for rel, _ in files:
         ext = _ext(rel)
         lang = EXT_LANGUAGE.get(ext)
         if lang:

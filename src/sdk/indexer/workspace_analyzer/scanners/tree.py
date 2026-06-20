@@ -5,12 +5,11 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
-from ..db.tree import RepositoryTree
-from ._walker import walk_repo
+from sdk.indexer.db.tree import RepositoryTree
 
 
-def scan_tree(repo_dir: Path | str, user_id: str, repository_name: str) -> RepositoryTree:
-    paths = sorted(rel for rel, _ in walk_repo(repo_dir))
+def scan_tree(files: list[tuple[str, int]], user_id: str, repository_name: str) -> RepositoryTree:
+    paths = sorted(rel for rel, _ in files)
     fingerprint = _fingerprint(paths)
     return RepositoryTree(
         user_id=user_id,

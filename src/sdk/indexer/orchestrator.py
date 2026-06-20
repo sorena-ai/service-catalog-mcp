@@ -41,7 +41,6 @@ except Exception:  # pragma: no cover
         return _decorator
 
 from .clone_workspace import IndexCloneWorkspace
-from .context_generator import run_tier2
 from . import progress
 from .db.codebase_contexts import CodebaseContextDB
 from .db.dependencies import RepositoryDependencyDB
@@ -52,19 +51,22 @@ from .db.runs import IndexEventRun, IndexEventRunDB
 from .db.tree import RepositoryTreeDB
 from .db.workspaces import RepositoryWorkspaceDB
 from .relationships import build_edges, persist_edges
-from .scanners import (
-    scan_dependencies,
-    scan_files,
+from .workspace_analyzer import (
+    NewRepoEntry,
+    load_existing_repo_cards,
+    run_workspace_analysis,
+)
+from .workspace_analyzer.scanners import (
     scan_languages,
     scan_tree,
     scan_workspaces,
 )
-from .scanners.codebase import (
-    NewRepoEntry,
-    load_existing_repo_cards,
-    run_tier1,
+from .repo_analyzer import run_repo_analysis
+from .repo_analyzer.scanners import (
+    scan_dependencies,
+    scan_files,
 )
-from .scanners.extractions import (
+from .repo_analyzer.scanners.extractions import (
     scan_chef,
     scan_docker,
     scan_frameworks,
@@ -110,9 +112,12 @@ async def run_indexing_event(
         # 1. Clone all repos for this event.
         progress.set_phase(user_id, "cloning")
         new_entries: List[NewRepoEntry] = []
-        for repo in repository_names:
+        
+        async def _clone_repo(repo: str):
             await asyncio.to_thread(workspace.clone_repo, event_id, repo, token)
             new_entries.append(NewRepoEntry(name=repo, dir=repo.replace("/", "__")))
+            
+        await asyncio.gather(*(_clone_repo(repo) for repo in repository_names))
 
         # 2. Codebase pass — uses cached cards for already-indexed repos.
         progress.set_phase(user_id, "analyzing_codebase")
@@ -123,7 +128,7 @@ async def run_indexing_event(
             load_existing_repo_cards, user_id, existing_names
         )
         codebase_run = await asyncio.to_thread(
-            run_tier1,
+            run_workspace_analysis,
             workspace,
             event_id,
             new_entries,
@@ -136,7 +141,8 @@ async def run_indexing_event(
         progress.set_phase(user_id, "scanning")
         repo_db = UserRepositoryDB()
         scanned_repositories: List[str] = []
-        for repo in repository_names:
+        
+        async def _scan_repo(repo: str):
             try:
                 await asyncio.to_thread(
                     repo_db.update_indexed_status, user_id, repo, False, "indexing"
@@ -156,6 +162,8 @@ async def run_indexing_event(
                     repo_db.update_indexed_status, user_id, repo, False, "failed"
                 )
 
+        await asyncio.gather(*(_scan_repo(repo) for repo in repository_names))
+
         if scanned_repositories:
             # 4. Repository pass — runs once for all repos with codebase contexts as grounding.
             progress.set_phase(user_id, "generating_repo_context")
@@ -163,7 +171,7 @@ async def run_indexing_event(
                 CodebaseContextDB().find_for_user, user_id
             )
             await asyncio.to_thread(
-                run_tier2,
+                run_repo_analysis,
                 workspace,
                 event_id,
                 scanned_repositories,
@@ -217,22 +225,25 @@ def _existing_indexed_names(user_id: str, exclude: set[str]) -> List[str]:
 def _scan_and_persist_one(user_id: str, repository_name: str, repo_dir: Path) -> None:
     """Run all deterministic and extraction scanners for ``repository_name``
     and persist results into the per-dimension and generic collections."""
+    from ._walker import walk_repo
+    files = list(walk_repo(repo_dir))
+
     progress.set_repo_step(user_id, repository_name, "Mapping file tree")
-    tree = scan_tree(repo_dir, user_id, repository_name)
+    tree = scan_tree(files, user_id, repository_name)
     RepositoryTreeDB().upsert(tree)
 
     paths = list(tree.paths or [])
 
     progress.set_repo_step(user_id, repository_name, "Detecting languages")
-    languages = scan_languages(repo_dir, user_id, repository_name)
+    languages = scan_languages(files, user_id, repository_name)
     RepositoryLanguageDB().replace_for_repository(user_id, repository_name, languages)
 
     progress.set_repo_step(user_id, repository_name, "Curating important files")
-    files = scan_files(repo_dir, user_id, repository_name)
-    RepositoryFileDB().replace_for_repository(user_id, repository_name, files)
+    curated_files = scan_files(files, user_id, repository_name)
+    RepositoryFileDB().replace_for_repository(user_id, repository_name, curated_files)
 
     progress.set_repo_step(user_id, repository_name, "Finding workspaces")
-    workspaces = scan_workspaces(repo_dir, user_id, repository_name)
+    workspaces = scan_workspaces(files, repo_dir, user_id, repository_name)
     RepositoryWorkspaceDB().replace_for_repository(user_id, repository_name, workspaces)
 
     progress.set_repo_step(user_id, repository_name, "Reading dependencies")
@@ -243,21 +254,21 @@ def _scan_and_persist_one(user_id: str, repository_name: str, repo_dir: Path) ->
 
     if _has_docker(paths):
         progress.set_repo_step(user_id, repository_name, "Examining Dockerfiles")
-        extractions.extend(scan_docker(repo_dir, user_id, repository_name))
+        extractions.extend(scan_docker(files, repo_dir, user_id, repository_name))
     if _has_github_actions(paths):
         progress.set_repo_step(user_id, repository_name, "Examining GitHub Actions")
-        extractions.extend(scan_github_actions(repo_dir, user_id, repository_name))
+        extractions.extend(scan_github_actions(files, repo_dir, user_id, repository_name))
     if _has_helm(paths):
         progress.set_repo_step(user_id, repository_name, "Examining Helm charts")
-        extractions.extend(scan_helm(repo_dir, user_id, repository_name))
+        extractions.extend(scan_helm(files, repo_dir, user_id, repository_name))
     if _has_chef(paths):
         progress.set_repo_step(user_id, repository_name, "Examining Chef cookbooks")
-        extractions.extend(scan_chef(repo_dir, user_id, repository_name))
+        extractions.extend(scan_chef(files, repo_dir, user_id, repository_name))
     if _has_terraform(paths):
         progress.set_repo_step(user_id, repository_name, "Examining Terraform modules")
-        extractions.extend(scan_terraform(repo_dir, user_id, repository_name))
+        extractions.extend(scan_terraform(files, repo_dir, user_id, repository_name))
 
-    kubernetes = scan_kubernetes(repo_dir, user_id, repository_name) if _has_yaml(paths) else []
+    kubernetes = scan_kubernetes(files, repo_dir, user_id, repository_name) if _has_yaml(paths) else []
     if kubernetes:
         progress.set_repo_step(user_id, repository_name, "Examining Kubernetes manifests")
         extractions.extend(kubernetes)

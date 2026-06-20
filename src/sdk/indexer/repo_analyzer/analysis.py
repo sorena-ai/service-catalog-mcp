@@ -18,8 +18,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Iterable, List, Optional
 
-from lib.claude_cli.client import ClaudeCLIClient
-from lib.claude_cli.models import ClaudeRunConfig
+from lib.cli import get_cli
+from lib.cli.base import CliRunConfig
 
 try:
     from langsmith import traceable as _traceable
@@ -32,19 +32,19 @@ except Exception:  # pragma: no cover
             return args[0]
         return _decorator
 
-from .clone_workspace import IndexCloneWorkspace
-from .db.codebase_contexts import CodebaseContext
-from .db.contexts import RepositoryContext, RepositoryContextDB
-from .db.dependencies import RepositoryDependencyDB
-from .db.extractions import RepositoryExtractionDB
-from .db.files import RepositoryFileDB
-from .db.languages import RepositoryLanguageDB
-from .db.tree import RepositoryTreeDB
-from .db.workspaces import RepositoryWorkspaceDB
-from .prompts.tier2_repo import (
+from sdk.indexer.clone_workspace import IndexCloneWorkspace
+from sdk.indexer.db.codebase_contexts import CodebaseContext
+from sdk.indexer.db.contexts import RepositoryContext, RepositoryContextDB
+from sdk.indexer.db.dependencies import RepositoryDependencyDB
+from sdk.indexer.db.extractions import RepositoryExtractionDB
+from sdk.indexer.db.files import RepositoryFileDB
+from sdk.indexer.db.languages import RepositoryLanguageDB
+from sdk.indexer.db.tree import RepositoryTreeDB
+from sdk.indexer.db.workspaces import RepositoryWorkspaceDB
+from sdk.indexer.prompts.repo_analyzer import (
     INPUT_FILENAME,
     OUTPUT_FILENAME,
-    TIER2_PROMPT,
+    REPO_PROMPT,
 )
 from sdk import vocabulary as vocab_mod
 
@@ -55,12 +55,12 @@ DEFAULT_TIMEOUT = 1800
 TOP_DEPENDENCY_COUNT = 30
 
 
-class Tier2ParseError(RuntimeError):
+class RepoParseError(RuntimeError):
     pass
 
 
-@_traceable(run_type="chain", name="indexer.tier2")
-def run_tier2(
+@_traceable(run_type="chain", name="indexer.repo_analysis")
+def run_repo_analysis(
     workspace: IndexCloneWorkspace,
     event_id: str,
     repository_names: Iterable[str],
@@ -83,15 +83,15 @@ def run_tier2(
 
     _assemble_input(event_dir, user_id, repo_list, list(codebase_contexts))
 
-    client = ClaudeCLIClient()
-    config = ClaudeRunConfig(
-        cwd=str(event_dir),
-        prompt=TIER2_PROMPT,
+    cli = get_cli()
+    config = CliRunConfig(
+        cwd=event_dir,
+        prompt=REPO_PROMPT,
         model=model or os.getenv("CLAUDE_CLI_DEFAULT_MODEL") or DEFAULT_MODEL,
         max_turns=200,
         timeout=timeout_seconds,
     )
-    result = client.run(config)
+    result = cli.run(config)
 
     rows_by_repo = _parse_output(event_dir / OUTPUT_FILENAME, user_id, repo_list)
     counts = _persist(rows_by_repo)
@@ -207,18 +207,18 @@ def _parse_output(
     output_path: Path, user_id: str, expected_names: List[str]
 ) -> dict[str, List[RepositoryContext]]:
     if not output_path.exists():
-        raise Tier2ParseError(f"Repository pass output missing: {output_path}")
+        raise RepoParseError(f"Repository pass output missing: {output_path}")
 
     try:
         data = json.loads(output_path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as exc:
-        raise Tier2ParseError(f"Invalid JSON in {output_path}: {exc}") from exc
+        raise RepoParseError(f"Invalid JSON in {output_path}: {exc}") from exc
 
     if not isinstance(data, dict):
-        raise Tier2ParseError(f"Repository pass output must be a JSON object, got {type(data).__name__}")
+        raise RepoParseError(f"Repository pass output must be a JSON object, got {type(data).__name__}")
     repos_data = data.get("repos")
     if not isinstance(repos_data, list):
-        raise Tier2ParseError("Repository pass output missing required 'repos' list")
+        raise RepoParseError("Repository pass output missing required 'repos' list")
 
     expected = set(expected_names)
     out: dict[str, List[RepositoryContext]] = {}
@@ -231,16 +231,16 @@ def _parse_output(
             continue
         contexts = entry.get("contexts")
         if not isinstance(contexts, list):
-            raise Tier2ParseError(f"repo {name}: 'contexts' must be a list")
+            raise RepoParseError(f"repo {name}: 'contexts' must be a list")
 
         rows = _build_rows(user_id, name, contexts)
         if not any(r.context_type == "repo_summary" for r in rows):
-            raise Tier2ParseError(f"repo {name} missing required repo_summary context")
+            raise RepoParseError(f"repo {name} missing required repo_summary context")
         out[name] = rows
 
     missing = expected - out.keys()
     if missing:
-        raise Tier2ParseError(f"Repository pass output missing repos: {sorted(missing)}")
+        raise RepoParseError(f"Repository pass output missing repos: {sorted(missing)}")
     return out
 
 
@@ -301,4 +301,4 @@ def _persist(rows_by_repo: dict[str, List[RepositoryContext]]) -> dict[str, int]
     return counts
 
 
-__all__ = ["run_tier2", "Tier2ParseError"]
+__all__ = ["run_repo_analysis", "RepoParseError"]

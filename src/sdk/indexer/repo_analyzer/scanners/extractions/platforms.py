@@ -10,8 +10,8 @@ from __future__ import annotations
 
 from typing import Iterable, List, Optional
 
-from ...db.extractions import RepositoryExtraction
-from ...db.tree import RepositoryTree
+from sdk.indexer.db.extractions import RepositoryExtraction
+from sdk.indexer.db.tree import RepositoryTree
 
 EXTRACTION_TO_PLATFORM = {
     "kubernetes_object": ("kubernetes", "manifest"),

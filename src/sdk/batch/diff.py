@@ -17,7 +17,9 @@ from sdk.batch.models import BatchSession, DiffState, FileStat, SubTask, Task
 if TYPE_CHECKING:
     from sdk.storage.cache.base import Cache
 
-from .cli_runner import ExternalRefusal, ResumableClaudeRunner
+from lib.cli import get_cli
+from lib.cli.base import CliRunConfig
+from lib.cli.errors import CliRefusal
 from .models import SimpleUserRequest
 from . import tasks as _tasks_mod
 from .workspace import clone_repo, repo_dir
@@ -103,11 +105,12 @@ async def run_single_repo(
             task_description=task.description,
             sub_task_description=sub.description,
         )
-        runner = ResumableClaudeRunner()
+        cli = get_cli()
         prompt = f"{sub.description}\n\n{SUMMARY_INSTRUCTION}"
-        cli_session_id, result_text, _cost = await asyncio.to_thread(
-            runner.run, cwd, prompt, system, None
+        result = await asyncio.to_thread(
+            cli.run, CliRunConfig(cwd=cwd, prompt=prompt, system=system, max_turns=50)
         )
+        cli_session_id, result_text = result.session_id, result.result_text
         await cache.set_cli_session(user_id, repo, cli_session_id, 0)
 
         file_diffs, file_stats = await collect_git_diff(cwd)
@@ -125,7 +128,7 @@ async def run_single_repo(
         await cache.set_subtask(user_id, repo, done)
         logger.info("Diff ready for %s/%s", user_id, repo)
 
-    except ExternalRefusal as exc:
+    except CliRefusal as exc:
         logger.warning("External refusal for %s/%s: %s", user_id, repo, exc)
         failed = sub.model_copy(update={"diff": DiffState(
             status="failed", error=str(exc), error_kind="external",
@@ -199,12 +202,16 @@ async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatR
         raise ConflictError("Workspace not found; workspace may have been wiped")
 
     try:
-        runner = ResumableClaudeRunner()
+        cli = get_cli()
 
         if req.mode == "qa":
-            new_cli_id, result_text, _cost = await asyncio.to_thread(
-                runner.run, cwd, req.message, None, sub.diff.cli_session_id
+            result = await asyncio.to_thread(
+                cli.run, CliRunConfig(
+                    cwd=cwd, prompt=req.message,
+                    resume_session_id=sub.diff.cli_session_id, max_turns=50,
+                )
             )
+            new_cli_id, result_text = result.session_id, result.result_text
             updated = SubTask(
                 repo=repo, branch=sub.branch, description=sub.description,
                 diff=DiffState(
@@ -223,9 +230,13 @@ async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatR
 
         # mode == "edit"
         prompt = f"{req.message}\n\n{SUMMARY_INSTRUCTION}"
-        new_cli_id, result_text, _cost = await asyncio.to_thread(
-            runner.run, cwd, prompt, None, sub.diff.cli_session_id
+        result = await asyncio.to_thread(
+            cli.run, CliRunConfig(
+                cwd=cwd, prompt=prompt,
+                resume_session_id=sub.diff.cli_session_id, max_turns=50,
+            )
         )
+        new_cli_id, result_text = result.session_id, result.result_text
         new_iteration = (sub.diff.iteration or 0) + 1
         await cache.set_cli_session(req.user_id, repo, new_cli_id, new_iteration)
 
@@ -248,7 +259,7 @@ async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatR
         updated_session = await cache.get_session(req.user_id)
         return ChatRepoResponse(status="ok", cli_response=one_liner, session=updated_session)
 
-    except ExternalRefusal as exc:
+    except CliRefusal as exc:
         if req.mode == "edit":
             await cache.set_subtask(req.user_id, repo, SubTask(
                 repo=repo, branch=sub.branch, description=sub.description,

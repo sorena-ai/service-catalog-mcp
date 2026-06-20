@@ -11,8 +11,7 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from ..db.workspaces import RepositoryWorkspace
-from ._walker import walk_repo
+from sdk.indexer.db.workspaces import RepositoryWorkspace
 
 # Manifest filename → (package_manager, dominant_language).
 MANIFEST_TO_PM_LANG: Dict[str, Tuple[str, str]] = {
@@ -42,10 +41,10 @@ REQUIREMENTS_PREFIX = "requirements"
 
 
 def scan_workspaces(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], repo_dir: Path | str, user_id: str, repository_name: str
 ) -> List[RepositoryWorkspace]:
     by_dir: Dict[str, List[str]] = defaultdict(list)
-    for rel, _ in walk_repo(repo_dir):
+    for rel, _ in files:
         name = rel.rsplit("/", 1)[-1]
         dirpath = rel.rsplit("/", 1)[0] if "/" in rel else "."
 

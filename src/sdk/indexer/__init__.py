@@ -2,11 +2,13 @@
 
 Owns:
   - DB models for per-dimension and generic collections (``db/``)
-  - Deterministic + extraction scanners (``scanners/``)
-  - Codebase pass (``scanners/codebase/``)
-  - Repository pass per-repo context generator (``context_generator.py``)
+  - Workspace analyzer (``workspace_analyzer/``): codebase-wide LLM pass +
+    structural scanners (tree, languages, workspaces)
+  - Repo analyzer (``repo_analyzer/``): per-repo LLM pass + detail scanners
+    (files, dependencies, extractions)
+  - Shared scan helpers (``_walker.py``, ``lang_extensions.py``)
   - Edge builder (``relationships.py``)
-  - Event-level orchestrator (``orchestrator.py``)
+  - Event-level coordinator that sequences both analyzers (``orchestrator.py``)
   - Per-user scheduler (``scheduler.py``)
 """
 

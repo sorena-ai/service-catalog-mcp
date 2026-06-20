@@ -14,7 +14,7 @@ import re
 from pathlib import Path
 from typing import List, Optional, Tuple
 
-from ...db.extractions import RepositoryExtraction
+from sdk.indexer.db.extractions import RepositoryExtraction
 from ._yaml import safe_load_one
 
 WORKFLOW_DIR = ".github/workflows"
@@ -27,17 +27,16 @@ USES_REF = re.compile(
 
 
 def scan_github_actions(
-    repo_dir: Path | str, user_id: str, repository_name: str
+    files: list[tuple[str, int]], repo_dir: Path | str, user_id: str, repository_name: str
 ) -> List[RepositoryExtraction]:
     base = Path(repo_dir)
-    workflow_dir = base / WORKFLOW_DIR
-    if not workflow_dir.is_dir():
-        return []
-
     rows: List[RepositoryExtraction] = []
-    for path in sorted(workflow_dir.glob("*.y*ml")):
-        rel = str(path.relative_to(base)).replace("\\", "/")
-        rows.extend(_from_workflow(path, rel, user_id, repository_name))
+    
+    for rel, _ in files:
+        if rel.startswith(".github/workflows/") and rel.endswith((".yml", ".yaml")):
+            path = base / rel
+            rows.extend(_from_workflow(path, rel, user_id, repository_name))
+            
     return rows
 
 
