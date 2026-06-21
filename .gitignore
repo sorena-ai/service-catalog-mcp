@@ -94,7 +94,6 @@ lerna-debug.log*
 
 # Docker
 .docker/
-docker-compose.yml
 docker-compose.override.yml
 
 # Traefik
