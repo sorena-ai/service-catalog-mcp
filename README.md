@@ -45,19 +45,48 @@ cp .env.example .env
 # Edit .env — at minimum set GITHUB_TOKEN and ANTHROPIC_API_KEY
 ```
 
-### 2. Choose a CLI provider
+### 2. Set up your CLI provider
 
-Service Catalog generates code changes by running a CLI agent inside each cloned repository. Two providers are supported:
+Service Catalog generates code changes by running a CLI agent inside each cloned repository. Two providers are supported.
 
-**Claude** (default) — set `CLI_PROVIDER=claude` and fill in `ANTHROPIC_API_KEY` in `.env`.
+#### Claude (default)
 
-**Devin** — set `CLI_PROVIDER=devin` in `.env`. The Devin CLI requires a one-time interactive auth step after the container starts:
+Set in `.env`:
+
+```
+CLI_PROVIDER=claude
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+That's all — no other setup needed.
+
+#### Devin
+
+Devin authenticates via a credentials file on your host machine. Set it up once, then mount the file into the container so it persists across restarts.
+
+**Step 1** — authenticate on your host:
 
 ```bash
-docker compose up -d mcp-server
-docker exec -it $(docker compose ps -q mcp-server) devin auth login --force-manual-token-flow
-# A URL is printed — open it in your browser, complete the login, then press Enter
-docker compose restart mcp-server
+# Install the Devin CLI if you haven't already
+curl -fsSL https://cli.devin.ai/install.sh | bash
+
+# Log in — this saves credentials to ~/.local/share/devin/credentials.toml
+devin auth login --force-manual-token-flow
+```
+
+**Step 2** — mount the credentials file. Add this volume to the `mcp-server` service in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - ~/.local/share/devin/credentials.toml:/root/.local/share/devin/credentials.toml:ro
+  - batch-workspaces:/var/batch-workspaces
+  - repo-clones:/repos
+```
+
+**Step 3** — set in `.env`:
+
+```
+CLI_PROVIDER=devin
 ```
 
 ### 3. Start

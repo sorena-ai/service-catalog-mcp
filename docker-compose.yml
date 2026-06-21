@@ -21,6 +21,9 @@ services:
       LANGSMITH_TRACING: ${LANGSMITH_TRACING:-}
       LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-service-catalog}
     volumes:
+      # Devin CLI: mount host credentials so auth persists across restarts.
+      # Run `devin auth login --force-manual-token-flow` on your host first.
+      # - ~/.local/share/devin/credentials.toml:/root/.local/share/devin/credentials.toml:ro
       - batch-workspaces:/var/batch-workspaces
       - repo-clones:/repos
     depends_on:
