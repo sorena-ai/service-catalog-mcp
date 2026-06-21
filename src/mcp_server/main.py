@@ -203,6 +203,18 @@ cancel_batch() wipes everything. Call propose_plan to start a new session.
 """.strip()
 
 
+def _check_cli_env() -> None:
+    provider = os.getenv("CLI_PROVIDER", "claude")
+    if provider == "claude":
+        if not os.getenv("ANTHROPIC_API_KEY"):
+            sys.exit("FATAL: CLI_PROVIDER=claude but ANTHROPIC_API_KEY is not set.")
+    elif provider == "devin":
+        if not os.getenv("DEVIN_API_KEY"):
+            sys.exit("FATAL: CLI_PROVIDER=devin but DEVIN_API_KEY is not set.")
+    else:
+        sys.exit(f"FATAL: unknown CLI_PROVIDER={provider!r}. Supported: claude, devin.")
+
+
 def _build_auth():
     if _LOCAL_MODE:
         return None
@@ -251,6 +263,7 @@ def main():
         stream=sys.stdout,
     )
     setup_tracing("mcp-server")
+    _check_cli_env()
 
     if _LOCAL_MODE:
         tools = _BASE_TOOLS

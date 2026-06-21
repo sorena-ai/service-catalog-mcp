@@ -203,12 +203,17 @@ async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatR
 
     try:
         cli = get_cli()
+        system = _DIFF_SYSTEM_TEMPLATE.format(
+            task_description=session.task.description,
+            sub_task_description=sub.description,
+        )
 
         if req.mode == "qa":
             result = await asyncio.to_thread(
                 cli.run, CliRunConfig(
                     cwd=cwd, prompt=req.message,
-                    resume_session_id=sub.diff.cli_session_id, max_turns=50,
+                    resume_session_id=sub.diff.cli_session_id,
+                    system=system, max_turns=50,
                 )
             )
             new_cli_id, result_text = result.session_id, result.result_text
@@ -233,7 +238,8 @@ async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatR
         result = await asyncio.to_thread(
             cli.run, CliRunConfig(
                 cwd=cwd, prompt=prompt,
-                resume_session_id=sub.diff.cli_session_id, max_turns=50,
+                resume_session_id=sub.diff.cli_session_id,
+                system=system, max_turns=50,
             )
         )
         new_cli_id, result_text = result.session_id, result.result_text
