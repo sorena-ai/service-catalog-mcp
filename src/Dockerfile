@@ -7,6 +7,9 @@ RUN npm install -g @anthropic-ai/claude-code
 
 RUN claude mcp add --scope user context7 -- npx -y @upstash/context7-mcp
 
+RUN curl -fsSL https://cli.devin.ai/install.sh | bash
+ENV PATH="/root/.local/bin:$PATH"
+
 ENTRYPOINT ["/usr/bin/tini", "--"]
 
 WORKDIR /app

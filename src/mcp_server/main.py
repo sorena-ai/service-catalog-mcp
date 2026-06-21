@@ -204,13 +204,23 @@ cancel_batch() wipes everything. Call propose_plan to start a new session.
 
 
 def _check_cli_env() -> None:
+    import subprocess as _sp
     provider = os.getenv("CLI_PROVIDER", "claude")
     if provider == "claude":
         if not os.getenv("ANTHROPIC_API_KEY"):
             sys.exit("FATAL: CLI_PROVIDER=claude but ANTHROPIC_API_KEY is not set.")
     elif provider == "devin":
-        if not os.getenv("DEVIN_API_KEY"):
-            sys.exit("FATAL: CLI_PROVIDER=devin but DEVIN_API_KEY is not set.")
+        try:
+            result = _sp.run(["devin", "auth", "status"], capture_output=True, text=True, timeout=10)
+            if "Logged in" not in result.stdout:
+                sys.exit(
+                    "FATAL: CLI_PROVIDER=devin but Devin CLI is not authenticated. "
+                    "Run: docker exec -it <container> devin auth login --force-manual-token-flow"
+                )
+        except FileNotFoundError:
+            sys.exit("FATAL: CLI_PROVIDER=devin but the 'devin' binary was not found.")
+        except _sp.TimeoutExpired:
+            sys.exit("FATAL: 'devin auth status' timed out.")
     else:
         sys.exit(f"FATAL: unknown CLI_PROVIDER={provider!r}. Supported: claude, devin.")
 
