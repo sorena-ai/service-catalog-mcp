@@ -7,7 +7,7 @@ FastMCP protocol adapter for Claude Desktop. Runs on port 8200. Pure tool layer 
 - Expose MCP tools to Claude Desktop
 - Provide server-level `instructions` that walk Claude through the conversational batch flow
 - Validate Auth0 JWT (cloud) or GITHUB_TOKEN (local) on every request and resolve the internal user_id
-- Construct a `ServiceManager` per request with `cache`, `repos`, `user_id`, and `get_token` — injected into every tool
+- Pass `workspace` and `scheduler` to every tool via `ctx.lifespan_context`
 - Format responses for LLM consumption (typed Pydantic return models)
 
 ## Directory layout
@@ -15,9 +15,10 @@ FastMCP protocol adapter for Claude Desktop. Runs on port 8200. Pure tool layer 
 ```
 src/mcp_server/
 ├── app.py         FastMCP factory — create_app(), _ToolCallTracer middleware, ToolAnnotations constants
+│                  Lifespan yields {"workspace": Workspace, "scheduler": IndexingScheduler}
 ├── main.py        Entrypoint — LOCAL/cloud mode split, _BASE_TOOLS/_ACCOUNT_TOOLS lists,
 │                  _LOCAL_INSTRUCTIONS/_CLOUD_INSTRUCTIONS, _build_auth(), main()
-├── identity.py    Token resolution + ServiceManager construction + session caching
+├── identity.py    Token resolution — resolve_identity(ctx) → (user_id, get_token)
 ├── errors.py      translate_sdk_errors decorator — SDK domain exceptions → ToolError
 └── tools/
     ├── billing.py         get_credit_balance
@@ -45,8 +46,6 @@ src/mcp_server/
 | Onboarding | `list_user_repositories` | readOnly | All linked repos with indexing status |
 | Discovery | `search_repos` | readOnly | Structured filter and/or NL query — at least one required |
 | Discovery | `get_codebase_glossary` | readOnly | User-specific terminology and query hints from codebase pass |
-| Discovery | `list_repository_groups` | readOnly | List saved repo sets |
-| Discovery | `get_repository_group` | readOnly | Fetch one saved repo set by name |
 | Plan | `propose_plan` | idempotent | Start a batch — runs planner LLM; 409 if session exists |
 | Plan | `replan` | — | Re-run planner with a hint; preserves session |
 | Plan | `set_repo_subtask` | idempotent | Direct edit of one repo's description or base branch |
@@ -55,7 +54,6 @@ src/mcp_server/
 | Diff | `start_diffs` | idempotent | Kick off CLI for every pending repo; background |
 | Diff | `chat_repo` | — | mode="qa" for Q&A; mode="edit" for code changes |
 | Diff | `wait_for_diffs` | readOnly | MCP-side polling loop; streams progress; returns after ~25s |
-| Push | `run_in_repo` | readOnly | Bounded shell: git, cat, grep, head, ls — no pipes |
 | Push | `push_repos` | destructive | git push ready repos; `(repos, branch, force)` |
 | PR | `create_pr_prep` | idempotent | Haiku-drafted title + body per repo; local only |
 | PR | `set_pr_prep` | idempotent | Partial update of a repo's PR title or body |
@@ -81,17 +79,26 @@ Only call this when the user explicitly asks to see a file's diff — it returns
 
 Every tool function:
 1. Takes `ctx: Context` as first argument.
-2. Calls `sm = await get_service_manager(ctx)` — resolves identity and returns a `ServiceManager`.
-3. Calls `sm.<method>(...)` to invoke batch or search operations.
-4. Raises `fastmcp.exceptions.ToolError` for user-facing errors (via `@translate_sdk_errors`).
-5. Returns a Pydantic model — FastMCP exports its schema to Claude.
+2. Calls `ws = ctx.lifespan_context["workspace"]` to get the process-level `Workspace`.
+3. Calls `user_id, get_token = await resolve_identity(ctx)` to get the user identity.
+4. Calls `ws.<method>(user_id, ...)` to invoke batch operations.
+5. Raises `fastmcp.exceptions.ToolError` for user-facing errors (via `@translate_sdk_errors`).
+6. Returns a Pydantic model — FastMCP exports its schema to Claude.
 
 ```python
 # Typical pattern
 @translate_sdk_errors
 async def propose_plan(ctx: Context, query: str, repos: List[str]) -> PlanResponse:
-    sm = await get_service_manager(ctx)
-    return PlanResponse(session=await sm.propose(query, repos))
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return PlanResponse(session=await ws.propose(user_id, query, repos, get_token=get_token))
+```
+
+Search tools don't use the workspace — they call `IndexSearchService()` directly:
+```python
+user_id, _ = await resolve_identity(ctx)
+svc = IndexSearchService()
+result = svc.public_search_with_nl(user_id, ...)
 ```
 
 ## Authentication
@@ -102,16 +109,13 @@ async def propose_plan(ctx: Context, query: str, repos: List[str]) -> PlanRespon
 
 ## Identity resolution
 
-`identity.py` exposes `get_service_manager(ctx) -> ServiceManager`:
+`identity.py` exposes `resolve_identity(ctx) -> Tuple[str, Callable[[], Awaitable[str]]]`:
 
 ```
-get_service_manager(ctx)
-  → cache = ctx.lifespan_context["cache"]   ← process-level shared backend
-  → repos = ctx.lifespan_context["repos"]   ← process-level shared backend
+resolve_identity(ctx) → (user_id, get_token)
 
   LOCAL mode:
     → user_id = "default", get_token = lambda: GITHUB_TOKEN
-    → return ServiceManager(cache, repos, user_id, get_token)
 
   Cloud mode:
     → ctx.get_state("resolved_user_id")  ← cache hit: skip JWT decode
@@ -120,7 +124,6 @@ get_service_manager(ctx)
         UserDB().resolve_or_create_from_auth0(sub, email, name) → user_id
         ctx.set_state("resolved_user_id", user_id)
     → get_token fetches GitHub App installation token on demand
-    → return ServiceManager(cache, repos, user_id, get_token)
 ```
 
 ## Error contract
@@ -134,6 +137,23 @@ get_service_manager(ctx)
 | `InvalidRequestError` | `"Invalid request: <detail>"` |
 | `ConflictError` | `"<detail>"` (no prefix) |
 | Any other `SdkError` | `"<detail>"` |
+
+## Workspace and scheduler lifecycle
+
+Both are constructed in `main()` and passed to `create_app`:
+
+```python
+cache = _build_cache()  # RedisCache or MemoryCache
+workspace = Workspace(local=_LOCAL_MODE, base=_resolve_base(), cache=cache)
+scheduler = IndexingScheduler(workspace)
+app = create_app(..., workspace=workspace, scheduler=scheduler)
+```
+
+`_resolve_base()`:
+- `LOCAL=true`: `Path.cwd()` at startup (user starts the server from their project root)
+- `LOCAL=false`: `Path(os.getenv("WORKSPACE_BASE_DIR", "/var/workspaces"))`
+
+Lifespan (`app.py`) yields `{"workspace": workspace, "scheduler": scheduler}` — tools access them via `ctx.lifespan_context["workspace"]` and `ctx.lifespan_context["scheduler"]`.
 
 ## Instructions (server system prompt)
 
@@ -156,5 +176,5 @@ docker compose up -d --build mcp-server
 ### Smoke test (import check)
 
 ```bash
-docker compose run --rm --no-deps mcp-server python -c "import mcp_server.main; print('OK')"
+docker compose run --rm --no-deps mcp-server python3 -c "import mcp_server.main; print('OK')"
 ```

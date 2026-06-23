@@ -41,10 +41,13 @@ All imports use flat package paths relative to `src/` (the WORKDIR):
 ```python
 from lib.github.client import installation_token_for_id
 from api.db.users import UserDB
-from sdk.indexer import indexing_scheduler
+from sdk.indexer import IndexingScheduler
+from sdk.workspace import Workspace
 from lib.async_utils import set_main_event_loop
 from api.stripe.client import get_stripe_client
 ```
+
+`IndexingScheduler` is constructed in `main.py` lifespan and stored on `app.state.scheduler`. Webhook handlers access it via `request.app.state.scheduler.trigger(...)`.
 
 ## Running locally
 

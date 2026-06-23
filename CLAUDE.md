@@ -2,10 +2,14 @@
 
 Service Catalog is an AI-powered platform for making batch code changes across multiple GitHub repositories.
 
-Each service has its own CLAUDE.md with working details:
+Each service and sub-package has its own CLAUDE.md with working details:
 
 - [`src/mcp_server/CLAUDE.md`](src/mcp_server/CLAUDE.md) — FastMCP tool layer for Claude Desktop
 - [`src/api/CLAUDE.md`](src/api/CLAUDE.md) — webhook-only FastAPI service
+- [`src/sdk/CLAUDE.md`](src/sdk/CLAUDE.md) — shared business logic layer
+- [`src/sdk/batch/CLAUDE.md`](src/sdk/batch/CLAUDE.md) — batch change workflow (plan → diff → push → PR)
+- [`src/sdk/indexer/CLAUDE.md`](src/sdk/indexer/CLAUDE.md) — repo indexing pipeline + scheduler
+- [`src/sdk/search/CLAUDE.md`](src/sdk/search/CLAUDE.md) — structured + NL search over indexed data
 
 ---
 
