@@ -1,0 +1,109 @@
+services:
+  api:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: service-catalog-api
+    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "80"]
+    environment:
+      - ENVIRONMENT=development
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - CLONE_REPO_BASE_DIR=${CLONE_REPO_BASE_DIR}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_PRIVATE_KEY_PATH=/data/infraasai.pem
+      - GITHUB_APP_ID=1252048
+      - GITHUB_APP_NAME=${GITHUB_APP_NAME:-service-catalog}
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - MONGODB_URI=mongodb://admin:admin@mongodb:27017
+      - MONGODB_DATABASE=service-catalog
+      - REDIS_URL=redis://redis:6379
+      - LANGSMITH_TRACING=true
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_PROJECT=service-catalog-api
+    volumes:
+      - ./data/repodb:${CLONE_REPO_BASE_DIR}
+      - ./data/infraasai.pem:/data/infraasai.pem:ro
+    depends_on:
+      - mongodb
+      - redis
+    networks:
+      - service-catalog
+
+  mcp-server:
+    build:
+      context: ./src
+      dockerfile: Dockerfile
+    container_name: service-catalog-mcp-server
+    command: ["python", "-m", "mcp_server.main"]
+    environment:
+      - ENVIRONMENT=development
+      - LOCAL=false
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - MCP_PORT=8200
+      - MONGODB_URI=mongodb://admin:admin@mongodb:27017
+      - MONGODB_DATABASE=service-catalog
+      - REDIS_URL=redis://redis:6379
+      - MCP_AUTH0_DOMAIN=${MCP_AUTH0_DOMAIN:-}
+      - MCP_AUTH0_CLIENT_ID=${MCP_AUTH0_CLIENT_ID:-}
+      - MCP_AUTH0_CLIENT_SECRET=${MCP_AUTH0_CLIENT_SECRET:-}
+      - MCP_AUTH0_AUDIENCE=${MCP_AUTH0_AUDIENCE:-}
+      - MCP_BASE_URL=${MCP_BASE_URL:-http://localhost:8200}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - GITHUB_PRIVATE_KEY_PATH=/data/infraasai.pem
+      - GITHUB_APP_ID=1252048
+      - GITHUB_APP_NAME=${GITHUB_APP_NAME:-service-catalog}
+      - STRIPE_API_KEY=${STRIPE_API_KEY}
+      - STRIPE_WEBHOOK_SECRET=${STRIPE_WEBHOOK_SECRET}
+      - LANGSMITH_TRACING=true
+      - LANGSMITH_API_KEY=${LANGSMITH_API_KEY}
+      - LANGSMITH_ENDPOINT=${LANGSMITH_ENDPOINT}
+      - LANGSMITH_PROJECT=service-catalog-mcp-server
+    volumes:
+      - ./data/repodb:${CLONE_REPO_BASE_DIR}
+      - ./data/infraasai.pem:/data/infraasai.pem:ro
+    depends_on:
+      - mongodb
+      - redis
+    ports:
+      - "8200:8200"
+    networks:
+      - service-catalog
+
+  mongodb:
+    container_name: service-catalog-mongodb
+    image: mongo
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: admin
+      MONGO_INITDB_ROOT_PASSWORD: admin
+    volumes:
+      - ./data/mongodb:/data/db
+    networks:
+      - service-catalog
+
+  mongo-express:
+    container_name: service-catalog-mongo-express
+    image: mongo-express
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
+      ME_CONFIG_MONGODB_ADMINPASSWORD: admin
+      ME_CONFIG_MONGODB_URL: mongodb://admin:admin@mongodb:27017/
+      ME_CONFIG_BASICAUTH: false
+    networks:
+      - service-catalog
+
+  redis:
+    container_name: service-catalog-redis
+    image: redis:alpine
+    restart: always
+    networks:
+      - service-catalog
+
+networks:
+  service-catalog:
+    name: service-catalog
