@@ -2,6 +2,8 @@
 
 AI-powered platform for making batch code changes across multiple GitHub repositories. Connect any MCP client, describe a change in plain English, and Service Catalog finds the right repos, generates diffs via Claude or Devin, pushes branches, and opens pull requests.
 
+[![Watch the demo](https://img.youtube.com/vi/UuIU4TJDc_A/0.jpg)](https://www.youtube.com/watch?v=UuIU4TJDc_A)
+
 ## Connect
 
 ### Hosted service
