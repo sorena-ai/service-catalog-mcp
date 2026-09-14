@@ -13,6 +13,7 @@ from sdk.batch.models import PR, PRPrep, SubTask
 
 if TYPE_CHECKING:
     from sdk.storage.cache.base import Cache
+    from sdk.workspace import Workspace
 
 from .llms.pr_drafter import draft_pr
 from .models import BulkReposRequest
@@ -125,7 +126,7 @@ async def set_pr_prep(repo: str, req: SetPRPrepRequest, *, cache: "Cache"):
 # ---------------------------------------------------------------------------
 
 
-async def create_pr(req: CreatePRRequest, *, cache: "Cache", get_token: Callable[[], Awaitable[str]]):
+async def create_pr(req: CreatePRRequest, *, cache: "Cache", get_token: Callable[[], Awaitable[str]], workspace: "Workspace"):
     from sdk.batch.models import BatchSession
 
     session = await cache.get_session(req.user_id)
@@ -142,7 +143,7 @@ async def create_pr(req: CreatePRRequest, *, cache: "Cache", get_token: Callable
             logger.warning("create_pr: repo %s has no pr_prep", repo)
             return
         await push_repo(req.user_id, session.session_id, repo, None, False,
-                        cache=cache, get_token=get_token)
+                        cache=cache, get_token=get_token, workspace=workspace)
         sub = await cache.get_subtask(req.user_id, repo)
         if sub is None or sub.push is None or sub.push.status != "pushed":
             logger.warning("create_pr: push failed for %s, skipping PR", repo)

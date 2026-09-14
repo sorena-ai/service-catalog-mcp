@@ -1,4 +1,4 @@
-"""Identity resolution — builds a per-request ServiceManager.
+"""Identity resolution — resolves (user_id, get_token) per request.
 
 LOCAL=true (default): single-user local mode, PAT from GITHUB_TOKEN.
 LOCAL=false: cloud mode, Auth0 JWT → Mongo → per-user installation token.
@@ -8,12 +8,12 @@ from __future__ import annotations
 import base64
 import logging
 import os
+from typing import Awaitable, Callable, Tuple
 
 from fastmcp import Context
 from fastmcp.server.dependencies import get_access_token
 
 from sdk.errors import GitHubAppNotInstalledError
-from sdk.service_manager import ServiceManager
 
 log = logging.getLogger("mcp_server.identity")
 
@@ -42,11 +42,10 @@ def ensure_installed(user_id: str) -> None:
         raise GitHubAppNotInstalledError(install_url=_build_install_url(user_id))
 
 
-async def get_service_manager(ctx: Context) -> ServiceManager:
-    """Resolve identity and return a fully wired ServiceManager for this request."""
-    cache = ctx.lifespan_context["cache"]
-    repos = ctx.lifespan_context["repos"]
-
+async def resolve_identity(
+    ctx: Context,
+) -> Tuple[str, Callable[[], Awaitable[str]]]:
+    """Return (user_id, get_token) for this request."""
     if _LOCAL_MODE:
         if not _LOCAL_TOKEN:
             raise RuntimeError("GITHUB_TOKEN env var is not set. Required for local mode.")
@@ -54,12 +53,7 @@ async def get_service_manager(ctx: Context) -> ServiceManager:
         async def _get_token() -> str:
             return _LOCAL_TOKEN
 
-        return ServiceManager(
-            cache=cache,
-            repos=repos,
-            user_id="default",
-            get_token=_get_token,
-        )
+        return "default", _get_token
 
     cached = await ctx.get_state(_USER_ID_STATE_KEY)
     if cached:
@@ -87,9 +81,4 @@ async def get_service_manager(ctx: Context) -> ServiceManager:
             raise GitHubAppNotInstalledError(install_url=_build_install_url(user_id))
         return await installation_token_for_id(user.installation_id)
 
-    return ServiceManager(
-        cache=cache,
-        repos=repos,
-        user_id=user_id,
-        get_token=_get_token,
-    )
+    return user_id, _get_token

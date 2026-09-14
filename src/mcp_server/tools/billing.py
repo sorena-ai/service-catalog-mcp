@@ -4,7 +4,7 @@ from fastmcp import Context
 from fastmcp.exceptions import ToolError
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 from api.db.users import UserDB
 
 
@@ -19,8 +19,8 @@ async def get_credit_balance(ctx: Context) -> dict:
     No GitHub installation is required — this works as soon as the user is
     authenticated.
     """
-    sm = await get_service_manager(ctx)
-    user = UserDB().get_user_by_id(sm.user_id)
+    user_id, _ = await resolve_identity(ctx)
+    user = UserDB().get_user_by_id(user_id)
     if not user:
         raise ToolError("Not found: User not found")
     return {

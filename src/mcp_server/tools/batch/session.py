@@ -5,7 +5,7 @@ from typing import Any, List, Optional
 from fastmcp import Context
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 
 
 @translate_sdk_errors
@@ -36,8 +36,9 @@ async def inspect_batch(
         file: Required for view=diff_file. File path within the repo.
         format: For view=status only. "concise" (default) or "detailed".
     """
-    sm = await get_service_manager(ctx)
-    result = await sm.inspect(view, repos=repos, repo=repo, file=file, fmt=format)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    result = await ws.inspect(user_id, view, get_token=get_token, repos=repos, repo=repo, file=file, fmt=format)
     if isinstance(result, str):
         return result
     return result.model_dump(mode="json")
@@ -51,5 +52,6 @@ async def cancel_batch(ctx: Context) -> dict:
     Already-created GitHub PRs are not touched. Returns {"status": "wiped"}.
     CONFIRM with the user before calling.
     """
-    sm = await get_service_manager(ctx)
-    return await sm.cancel()
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return await ws.cancel(user_id)

@@ -11,13 +11,23 @@ logging.basicConfig(level=getattr(logging, log_level, logging.INFO), stream=sys.
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 
+def _build_scheduler():
+    from pathlib import Path
+    from sdk.workspace import Workspace
+    from sdk.indexer import IndexingScheduler
+    base = Path(os.getenv("WORKSPACE_BASE_DIR", "/var/workspaces"))
+    ws = Workspace(local=False, base=base)
+    return IndexingScheduler(ws)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     from lib.async_utils import set_main_event_loop
     set_main_event_loop(asyncio.get_running_loop())
+    scheduler = _build_scheduler()
+    app.state.scheduler = scheduler
     yield
-    from sdk.indexer import indexing_scheduler
-    await indexing_scheduler.shutdown()
+    await scheduler.shutdown()
 
 
 app = FastAPI(title="Service Catalog API", lifespan=lifespan)

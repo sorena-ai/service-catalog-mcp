@@ -32,7 +32,7 @@ except Exception:  # pragma: no cover
             return args[0]
         return _decorator
 
-from sdk.indexer.clone_workspace import IndexCloneWorkspace
+from sdk.workspace import Workspace
 from sdk.indexer.db.codebase_contexts import CodebaseContext
 from sdk.indexer.db.contexts import RepositoryContext, RepositoryContextDB
 from sdk.indexer.db.dependencies import RepositoryDependencyDB
@@ -61,7 +61,8 @@ class RepoParseError(RuntimeError):
 
 @_traceable(run_type="chain", name="indexer.repo_analysis")
 def run_repo_analysis(
-    workspace: IndexCloneWorkspace,
+    user_id: str,
+    workspace: Workspace,
     event_id: str,
     repository_names: Iterable[str],
     codebase_contexts: Iterable[CodebaseContext] = (),
@@ -73,8 +74,7 @@ def run_repo_analysis(
     Returns a ``{repository_name: row_count}`` map. Raises on parse error
     or Claude failure; deterministic facts in Mongo remain intact.
     """
-    user_id = workspace.user_id
-    event_dir = workspace.prepare(event_id)
+    event_dir = workspace.prepare(user_id, event_id)
 
     repo_list = list(repository_names)
     if not repo_list:

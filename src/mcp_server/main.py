@@ -256,12 +256,11 @@ def _build_cache():
     return MemoryCache()
 
 
-def _build_repos():
-    if os.getenv("MONGODB_URI"):
-        from sdk.storage.db.mongo.repositories import UserRepositoryDB
-        return UserRepositoryDB()
-    from sdk.storage.db.tiny.stores import TinyUserRepositoryStore
-    return TinyUserRepositoryStore()
+def _resolve_base():
+    from pathlib import Path
+    if _LOCAL_MODE:
+        return Path.cwd()
+    return Path(os.getenv("WORKSPACE_BASE_DIR", "/var/workspaces"))
 
 
 def main():
@@ -284,14 +283,20 @@ def main():
         instructions = _CLOUD_INSTRUCTIONS
         name = "service-catalog"
 
+    from sdk.workspace import Workspace
+    from sdk.indexer import IndexingScheduler
+    cache = _build_cache()
+    workspace = Workspace(local=_LOCAL_MODE, base=_resolve_base(), cache=cache)
+    scheduler = IndexingScheduler(workspace)
+
     app = create_app(
         name=name,
         instructions=instructions,
         auth=_build_auth(),
         tools=tools,
         tool_annotations=_TOOL_ANNOTATIONS,
-        cache=_build_cache(),
-        repos=_build_repos(),
+        workspace=workspace,
+        scheduler=scheduler,
     )
 
     port = int(os.getenv("MCP_PORT", "8200"))

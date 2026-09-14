@@ -22,9 +22,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Awaitable, Callable, Dict, List, Set
+from typing import TYPE_CHECKING, Awaitable, Callable, Dict, List, Set
 
 from .orchestrator import run_indexing_event
+
+if TYPE_CHECKING:
+    from sdk.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +37,8 @@ TokenProvider = Callable[[str], Awaitable[str]]
 class IndexingScheduler:
     AUTO_INDEX_BULK_LIMIT = 5
 
-    def __init__(self) -> None:
+    def __init__(self, workspace: "Workspace") -> None:
+        self._workspace = workspace
         self._baskets: Dict[str, Set[str]] = {}
         self._token: Dict[str, TokenProvider] = {}
         self._trigger: Dict[str, str] = {}
@@ -103,6 +107,7 @@ class IndexingScheduler:
                     repository_names=sorted(repos),
                     token_provider=token,
                     trigger=trigger,
+                    workspace=self._workspace,
                 )
             except Exception:
                 logger.exception(
@@ -114,7 +119,3 @@ class IndexingScheduler:
         for worker in workers:
             worker.cancel()
         await asyncio.gather(*workers, return_exceptions=True)
-
-
-# Module-level singleton used by the FastAPI app.
-indexing_scheduler = IndexingScheduler()

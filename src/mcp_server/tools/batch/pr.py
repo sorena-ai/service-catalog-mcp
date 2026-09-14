@@ -6,7 +6,7 @@ from fastmcp import Context
 from fastmcp.exceptions import ToolError
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 from sdk.batch.models import BatchSession
 
 
@@ -23,8 +23,9 @@ async def create_pr_prep(ctx: Context, repos: List[str]) -> BatchSession:
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return await sm.create_pr_prep(repos)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return await ws.create_pr_prep(user_id, repos)
 
 
 @translate_sdk_errors
@@ -44,8 +45,9 @@ async def set_pr_prep(
         title: New PR title. Omit to keep existing.
         body: New PR body. Omit to keep existing.
     """
-    sm = await get_service_manager(ctx)
-    return await sm.set_pr_prep(repo, title, body)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return await ws.set_pr_prep(user_id, repo, title, body)
 
 
 @translate_sdk_errors
@@ -61,8 +63,9 @@ async def create_pr(ctx: Context, repos: List[str], draft: bool = False) -> Batc
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return await sm.create_pr(repos, draft)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return await ws.create_pr(user_id, repos, draft, get_token=get_token)
 
 
 @translate_sdk_errors
@@ -82,8 +85,9 @@ async def update_pr(
         title: New PR title. Omit to keep existing.
         body: New PR body. Omit to keep existing.
     """
-    sm = await get_service_manager(ctx)
-    return await sm.update_pr(repo, title, body)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return await ws.update_pr(user_id, repo, title, body, get_token=get_token)
 
 
 @translate_sdk_errors
@@ -97,5 +101,6 @@ async def close_pr(ctx: Context, repos: List[str]) -> BatchSession:
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return await sm.close_pr(repos)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return await ws.close_pr(user_id, repos, get_token=get_token)

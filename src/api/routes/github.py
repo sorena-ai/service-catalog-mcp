@@ -265,7 +265,7 @@ async def webhook_handler(request: Request):
 
         scheduler_status = "no_repos"
         if created_repos:
-            from sdk.indexer import indexing_scheduler, progress
+            from sdk.indexer import progress
 
             progress.ensure_event_for_user(user_id, [r.repository_name for r in created_repos])
 
@@ -273,7 +273,7 @@ async def webhook_handler(request: Request):
                 return await installation_token_for_id(str(installation_id))
 
             try:
-                result = await indexing_scheduler.trigger(
+                result = await request.app.state.scheduler.trigger(
                     user_id=user_id,
                     repository_names=[r.repository_name for r in created_repos],
                     token_provider=token_provider,

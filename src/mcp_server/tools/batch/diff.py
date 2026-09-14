@@ -7,7 +7,7 @@ from typing import Literal
 from fastmcp import Context
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 from sdk.batch.models import BatchSession, SubTask
 
 log = logging.getLogger("mcp_server.batch")
@@ -48,8 +48,9 @@ async def start_diffs(ctx: Context) -> BatchSession:
     Background: returns immediately. Use wait_for_diffs() to track progress.
     Idempotent — already-running or terminal repos are skipped.
     """
-    sm = await get_service_manager(ctx)
-    return await sm.start_diffs()
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return await ws.start_diffs(user_id, get_token=get_token)
 
 
 @translate_sdk_errors
@@ -73,8 +74,9 @@ async def chat_repo(
         message: The message to send to the Claude CLI session.
         mode: "qa" for questions, "edit" for code changes.
     """
-    sm = await get_service_manager(ctx)
-    return await sm.chat_repo(repo, message, mode)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return await ws.chat_repo(user_id, repo, message, mode)
 
 
 @translate_sdk_errors
@@ -87,7 +89,8 @@ async def wait_for_diffs(ctx: Context) -> BatchSession:
     IMPORTANT: If the returned session still has repos in non-terminal state,
     call this tool again — it is safe to call repeatedly until all diffs complete.
     """
-    sm = await get_service_manager(ctx)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
 
     loop = asyncio.get_running_loop()
     start = loop.time()
@@ -95,7 +98,7 @@ async def wait_for_diffs(ctx: Context) -> BatchSession:
     last_message = ""
 
     while True:
-        session = await sm.current_session()
+        session = await ws.current_session(user_id)
 
         weighted, total, message = _diff_progress(session.sub_tasks)
         progress = max(weighted, last_progress)

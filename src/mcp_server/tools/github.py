@@ -7,7 +7,7 @@ from fastmcp import Context
 from pydantic import BaseModel, ConfigDict
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 from sdk.batch.models import WorkflowJob, WorkflowRun
 
 
@@ -67,9 +67,15 @@ async def get_workflow_runs(
         pr_number: PR number — resolves head SHA automatically.
         limit: Max runs per repo (default 10, max 100).
     """
-    sm = await get_service_manager(ctx)
-    by_repo_ci = await sm.get_ci_status(
-        repos=repositories, branch=branch, pr_number=pr_number, limit=limit,
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    by_repo_ci = await ws.get_ci_status(
+        user_id,
+        get_token=get_token,
+        repos=repositories,
+        branch=branch,
+        pr_number=pr_number,
+        limit=limit,
     )
 
     result_repos: List[RepoWorkflowRuns] = []
@@ -108,8 +114,9 @@ async def get_workflow_jobs(
         run_id: Workflow run ID (from get_workflow_runs).
         failed_only: If True, return only failed/cancelled jobs. Default False.
     """
-    sm = await get_service_manager(ctx)
-    jobs = await sm.get_ci_jobs(repository, run_id)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    jobs = await ws.get_ci_jobs(user_id, repository, run_id, get_token=get_token)
     if failed_only:
         jobs = [
             j for j in jobs

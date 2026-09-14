@@ -12,13 +12,10 @@ Owns:
   - Per-user scheduler (``scheduler.py``)
 """
 
-from .clone_workspace import IndexCloneWorkspace
 from .orchestrator import run_indexing_event
-from .scheduler import IndexingScheduler, indexing_scheduler
+from .scheduler import IndexingScheduler
 
 __all__ = [
-    "IndexCloneWorkspace",
     "IndexingScheduler",
-    "indexing_scheduler",
     "run_indexing_event",
 ]

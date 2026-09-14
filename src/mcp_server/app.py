@@ -76,18 +76,17 @@ def create_app(
     auth=None,
     tools: list,
     tool_annotations: Optional[dict] = None,
-    cache,
-    repos,
+    workspace,
+    scheduler,
 ):
     @asynccontextmanager
     async def _lifespan(app):
         from lib.async_utils import set_main_event_loop
 
         set_main_event_loop(asyncio.get_running_loop())
-        yield {"cache": cache, "repos": repos}
+        yield {"workspace": workspace, "scheduler": scheduler}
         try:
-            from sdk.indexer import indexing_scheduler
-            await indexing_scheduler.shutdown()
+            await scheduler.shutdown()
         except Exception:
             pass
 

@@ -6,7 +6,7 @@ from fastmcp import Context
 from fastmcp.exceptions import ToolError
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 from sdk.batch.models import BatchSession
 
 
@@ -30,5 +30,6 @@ async def push_repos(
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return await sm.push_repos(repos, branch, force)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return await ws.push_repos(user_id, repos, branch, force, get_token=get_token)

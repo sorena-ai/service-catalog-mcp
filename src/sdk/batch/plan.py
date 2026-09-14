@@ -16,10 +16,13 @@ from sdk.batch.models import BatchSession, Hint, SubTask, Task
 if TYPE_CHECKING:
     from sdk.storage.cache.base import Cache
 
+from typing import TYPE_CHECKING as _TC2
+if _TC2:
+    from sdk.workspace import Workspace
+
 from . import tasks as _tasks_mod
 from .llms.planner import run_planner
 from .models import BulkReposRequest
-from .workspace import wipe_repo_workspace
 from lib.github.repos import get_default_branch
 
 logger = logging.getLogger(__name__)
@@ -121,7 +124,7 @@ async def replan(req: ReplanRequest, *, cache: "Cache") -> BatchSession:
     return await cache.get_session(req.user_id)
 
 
-async def set_repo_subtask(repo: str, req: SetSubtaskRequest, *, cache: "Cache") -> BatchSession:
+async def set_repo_subtask(repo: str, req: SetSubtaskRequest, *, cache: "Cache", workspace: "Workspace") -> BatchSession:
     session = await cache.get_session(req.user_id)
     if session is None:
         raise NotFoundError("No active batch session")
@@ -135,7 +138,7 @@ async def set_repo_subtask(repo: str, req: SetSubtaskRequest, *, cache: "Cache")
 
     if branch_changed:
         _tasks_mod.cancel_repo(req.user_id, repo)
-        wipe_repo_workspace(req.user_id, session.session_id, repo)
+        workspace.wipe_repo(req.user_id, session.session_id, repo)
         updated = SubTask(repo=repo, branch=new_branch, description=new_desc)
     else:
         updated = SubTask(
@@ -191,7 +194,7 @@ async def add_repos(req: BulkReposRequest, *, cache: "Cache", get_token: Callabl
     return await cache.get_session(req.user_id)
 
 
-async def remove_repos(req: BulkReposRequest, *, cache: "Cache") -> BatchSession:
+async def remove_repos(req: BulkReposRequest, *, cache: "Cache", workspace: "Workspace") -> BatchSession:
     session = await cache.get_session(req.user_id)
     if session is None:
         raise NotFoundError("No active batch session")
@@ -200,7 +203,7 @@ async def remove_repos(req: BulkReposRequest, *, cache: "Cache") -> BatchSession
         if repo not in session.sub_tasks:
             return
         _tasks_mod.cancel_repo(req.user_id, repo)
-        wipe_repo_workspace(req.user_id, session.session_id, repo)
+        workspace.wipe_repo(req.user_id, session.session_id, repo)
         await cache.delete_subtask(req.user_id, repo)
 
     await asyncio.gather(*[_remove_one(r) for r in req.repos])

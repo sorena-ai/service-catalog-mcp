@@ -7,7 +7,7 @@ from fastmcp.exceptions import ToolError
 from pydantic import BaseModel
 
 from mcp_server.errors import translate_sdk_errors
-from mcp_server.identity import get_service_manager
+from mcp_server.identity import resolve_identity
 from sdk.batch.models import BatchSession
 
 _PLAN_NEXT_STEP = (
@@ -45,8 +45,9 @@ async def propose_plan(ctx: Context, query: str, repos: List[str]) -> PlanRespon
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return PlanResponse(session=await sm.propose(query, repos))
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return PlanResponse(session=await ws.propose(user_id, query, repos, get_token=get_token))
 
 
 @translate_sdk_errors
@@ -64,8 +65,9 @@ async def replan(ctx: Context, hint: str) -> PlanResponse:
         hint: Additional context or change directive for the planner, e.g.
               "also update docker-compose.yml in each repo".
     """
-    sm = await get_service_manager(ctx)
-    return PlanResponse(session=await sm.replan(hint))
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return PlanResponse(session=await ws.replan(user_id, hint))
 
 
 @translate_sdk_errors
@@ -89,8 +91,9 @@ async def set_repo_subtask(
         description: New per-repo task notes. Replaces the planner output.
         branch: New base branch (PR target). Triggers workspace wipe if changed.
     """
-    sm = await get_service_manager(ctx)
-    return PlanResponse(session=await sm.set_repo_subtask(repo, description, branch))
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return PlanResponse(session=await ws.set_repo_subtask(user_id, repo, description, branch))
 
 
 @translate_sdk_errors
@@ -111,8 +114,9 @@ async def add_repos(ctx: Context, repos: List[str]) -> PlanResponse:
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return PlanResponse(session=await sm.add_repos(repos))
+    ws = ctx.lifespan_context["workspace"]
+    user_id, get_token = await resolve_identity(ctx)
+    return PlanResponse(session=await ws.add_repos(user_id, repos, get_token=get_token))
 
 
 @translate_sdk_errors
@@ -128,5 +132,6 @@ async def remove_repos(ctx: Context, repos: List[str]) -> BatchSession:
     """
     if not repos:
         raise ToolError("repos must not be empty")
-    sm = await get_service_manager(ctx)
-    return await sm.remove_repos(repos)
+    ws = ctx.lifespan_context["workspace"]
+    user_id, _ = await resolve_identity(ctx)
+    return await ws.remove_repos(user_id, repos)

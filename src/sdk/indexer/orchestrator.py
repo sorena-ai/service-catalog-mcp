@@ -40,7 +40,7 @@ except Exception:  # pragma: no cover
             return args[0]
         return _decorator
 
-from .clone_workspace import IndexCloneWorkspace
+from sdk.workspace import Workspace
 from . import progress
 from .db.codebase_contexts import CodebaseContextDB
 from .db.dependencies import RepositoryDependencyDB
@@ -86,13 +86,14 @@ async def run_indexing_event(
     repository_names: List[str],
     token_provider: TokenProvider,
     trigger: str = "auto",
+    *,
+    workspace: Workspace,
 ) -> str:
     """Run one indexing event end-to-end. Returns the ``IndexEventRun`` id."""
     if not repository_names:
         raise ValueError("repository_names cannot be empty")
 
     event_id = str(uuid.uuid4())
-    workspace = IndexCloneWorkspace(user_id)
     runs_db = IndexEventRunDB()
 
     run = IndexEventRun(
@@ -100,7 +101,7 @@ async def run_indexing_event(
         status="running",
         trigger=trigger,
         input_repository_names=list(repository_names),
-        clone_dir=str(workspace.event_dir(event_id)),
+        clone_dir=str(workspace.scope_dir(user_id, event_id)),
         started_at=datetime.utcnow(),
     )
     run_id = runs_db.insert(run)
@@ -112,9 +113,9 @@ async def run_indexing_event(
         # 1. Clone all repos for this event.
         progress.set_phase(user_id, "cloning")
         new_entries: List[NewRepoEntry] = []
-        
+
         async def _clone_repo(repo: str):
-            await asyncio.to_thread(workspace.clone_repo, event_id, repo, token)
+            await workspace.clone(user_id, event_id, repo, token, resume=False)
             new_entries.append(NewRepoEntry(name=repo, dir=repo.replace("/", "__")))
             
         await asyncio.gather(*(_clone_repo(repo) for repo in repository_names))
@@ -129,6 +130,7 @@ async def run_indexing_event(
         )
         codebase_run = await asyncio.to_thread(
             run_workspace_analysis,
+            user_id,
             workspace,
             event_id,
             new_entries,
@@ -151,7 +153,7 @@ async def run_indexing_event(
                     _scan_and_persist_one,
                     user_id,
                     repo,
-                    workspace.repo_dir(event_id, repo),
+                    workspace.repo_dir(user_id, event_id, repo),
                 )
                 progress.mark_repo_done(user_id, repo)
                 scanned_repositories.append(repo)
@@ -172,6 +174,7 @@ async def run_indexing_event(
             )
             await asyncio.to_thread(
                 run_repo_analysis,
+                user_id,
                 workspace,
                 event_id,
                 scanned_repositories,
@@ -214,7 +217,7 @@ async def run_indexing_event(
         raise
     finally:
         try:
-            await asyncio.to_thread(workspace.cleanup, event_id)
+            await asyncio.to_thread(workspace.wipe_scope, user_id, event_id)
         except Exception:
             logger.exception("Workspace cleanup failed: event=%s", event_id)
 # -- helpers --------------------------------------------------------------

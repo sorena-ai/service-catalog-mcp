@@ -27,7 +27,7 @@ except Exception:  # pragma: no cover
             return args[0]
         return _decorator
 
-from sdk.indexer.clone_workspace import IndexCloneWorkspace
+from sdk.workspace import Workspace
 from sdk.indexer.db.codebase_contexts import CodebaseContextDB
 from sdk.indexer.db.codebase_runs import CodebaseRun, CodebaseRunDB
 from sdk.indexer.prompts.workspace_analyzer import (
@@ -50,7 +50,8 @@ DEFAULT_TIMEOUT = 1800
 
 @_traceable(run_type="chain", name="indexer.workspace_analysis")
 def run_workspace_analysis(
-    workspace: IndexCloneWorkspace,
+    user_id: str,
+    workspace: Workspace,
     event_id: str,
     new_repos: Iterable[NewRepoEntry],
     existing_repos: Iterable[ExistingRepoCard] = (),
@@ -58,8 +59,7 @@ def run_workspace_analysis(
     model: str | None = None,
     timeout_seconds: int = DEFAULT_TIMEOUT,
 ) -> CodebaseRun:
-    user_id = workspace.user_id
-    event_dir = workspace.prepare(event_id)
+    event_dir = workspace.prepare(user_id, event_id)
 
     new_list: List[NewRepoEntry] = list(new_repos)
     existing_list: List[ExistingRepoCard] = list(existing_repos)

@@ -17,12 +17,15 @@ from sdk.batch.models import BatchSession, DiffState, FileStat, SubTask, Task
 if TYPE_CHECKING:
     from sdk.storage.cache.base import Cache
 
+from typing import TYPE_CHECKING as _TC2
+if _TC2:
+    from sdk.workspace import Workspace
+
 from lib.cli import get_cli
 from lib.cli.base import CliRunConfig
 from lib.cli.errors import CliRefusal
 from .models import SimpleUserRequest
 from . import tasks as _tasks_mod
-from .workspace import clone_repo, repo_dir
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +90,7 @@ async def run_single_repo(
     *,
     cache: "Cache",
     get_token: Callable[[], Awaitable[str]],
+    workspace: "Workspace",
 ) -> None:
     """Background task: clone → run CLI → collect diff → store results."""
     sub = await cache.get_subtask(user_id, repo)
@@ -96,7 +100,7 @@ async def run_single_repo(
 
     try:
         token = await get_token()
-        cwd = await clone_repo(user_id, session_id, repo, sub.branch, token)
+        cwd = await workspace.clone(user_id, session_id, repo, token, branch=sub.branch, resume=True)
 
         sub = sub.model_copy(update={"diff": DiffState(status="running", iteration=0)})
         await cache.set_subtask(user_id, repo, sub)
@@ -159,7 +163,7 @@ class ChatRepoResponse(BaseModel):
     session: Optional[BatchSession] = None
 
 
-async def start_diffs(req: SimpleUserRequest, *, cache: "Cache", get_token: Callable[[], Awaitable[str]]) -> BatchSession:
+async def start_diffs(req: SimpleUserRequest, *, cache: "Cache", get_token: Callable[[], Awaitable[str]], workspace: "Workspace") -> BatchSession:
     session = await cache.get_session(req.user_id)
     if session is None:
         raise NotFoundError("No active batch session")
@@ -177,7 +181,7 @@ async def start_diffs(req: SimpleUserRequest, *, cache: "Cache", get_token: Call
 
         task = asyncio.create_task(
             run_single_repo(req.user_id, session.session_id, repo, session.task,
-                            cache=cache, get_token=get_token),
+                            cache=cache, get_token=get_token, workspace=workspace),
             name=f"diff:{req.user_id}:{repo}",
         )
         _tasks_mod.register_repo(req.user_id, repo, task)
@@ -185,7 +189,7 @@ async def start_diffs(req: SimpleUserRequest, *, cache: "Cache", get_token: Call
     return await cache.get_session(req.user_id)
 
 
-async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatRepoResponse:
+async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache", workspace: "Workspace") -> ChatRepoResponse:
     """Q&A (mode=qa) or edit (mode=edit) for a repo's diff via the CLI session."""
     session = await cache.get_session(req.user_id)
     if session is None:
@@ -197,7 +201,7 @@ async def chat_repo(repo: str, req: ChatRepoRequest, *, cache: "Cache") -> ChatR
     if sub.diff is None or sub.diff.cli_session_id is None:
         raise ConflictError("No CLI session for this repo; call start_diffs first")
 
-    cwd = repo_dir(req.user_id, session.session_id, repo)
+    cwd = workspace.repo_dir(req.user_id, session.session_id, repo)
     if not cwd.exists():
         raise ConflictError("Workspace not found; workspace may have been wiped")
 

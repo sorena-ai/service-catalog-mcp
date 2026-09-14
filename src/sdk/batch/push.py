@@ -15,8 +15,7 @@ from sdk.errors import NotFoundError
 
 if TYPE_CHECKING:
     from sdk.storage.cache.base import Cache
-
-from .workspace import repo_dir
+    from sdk.workspace import Workspace
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +42,7 @@ async def push_repo(
     *,
     cache: "Cache",
     get_token: Callable[[], Awaitable[str]],
+    workspace: "Workspace",
 ) -> None:
     """Commit all changes on a PR branch and push to origin. Writes PushState to cache."""
     sub = await cache.get_subtask(user_id, repo)
@@ -50,7 +50,7 @@ async def push_repo(
         logger.warning("push_repo: subtask %s/%s not found", user_id, repo)
         return
 
-    cwd = repo_dir(user_id, session_id, repo)
+    cwd = workspace.repo_dir(user_id, session_id, repo)
     branch = branch_override or pr_branch_name(session_id)
 
     if branch == sub.branch and not force:
@@ -96,7 +96,7 @@ async def push_repo(
         }))
 
 
-async def push_repos(req: PushReposRequest, *, cache: "Cache", get_token: Callable[[], Awaitable[str]]) -> BatchSession:
+async def push_repos(req: PushReposRequest, *, cache: "Cache", get_token: Callable[[], Awaitable[str]], workspace: "Workspace") -> BatchSession:
     session = await cache.get_session(req.user_id)
     if session is None:
         raise NotFoundError("No active batch session")
@@ -113,7 +113,7 @@ async def push_repos(req: PushReposRequest, *, cache: "Cache", get_token: Callab
     ]
     await asyncio.gather(*[
         push_repo(req.user_id, session.session_id, repo, req.branch, req.force,
-                  cache=cache, get_token=get_token)
+                  cache=cache, get_token=get_token, workspace=workspace)
         for repo in pushable
     ])
     return await cache.get_session(req.user_id)
